@@ -854,7 +854,11 @@
     document.getElementById('smtpHost').value    = s.smtp_host  || '';
     document.getElementById('smtpPort').value    = s.smtp_port  || '587';
     document.getElementById('smtpUser').value    = s.smtp_user  || '';
-    document.getElementById('smtpPass').value    = s.smtp_pass  || '';
+    // Ne PAS pré-remplir smtpPass : la valeur masquée "••••••••" vient du GET
+    // → on utilise un placeholder pour indiquer si un mot de passe est déjà configuré
+    const passEl = document.getElementById('smtpPass');
+    passEl.value = '';
+    passEl.placeholder = s.smtp_pass ? '•••••••• (inchangé — laissez vide pour conserver)' : 'Mot de passe SMTP';
     document.getElementById('smtpFrom').value    = s.smtp_from  || '';
     document.getElementById('smtpSecure').checked = s.smtp_secure === 'true';
   }
@@ -867,26 +871,49 @@
   });
 
   document.getElementById('saveSmtpBtn').addEventListener('click', async () => {
+    const passVal = document.getElementById('smtpPass').value.trim();
     const body = {
-      smtp_host: document.getElementById('smtpHost').value,
-      smtp_port: document.getElementById('smtpPort').value,
-      smtp_user: document.getElementById('smtpUser').value,
-      smtp_pass: document.getElementById('smtpPass').value,
-      smtp_from: document.getElementById('smtpFrom').value,
+      smtp_host:   document.getElementById('smtpHost').value.trim(),
+      smtp_port:   document.getElementById('smtpPort').value.trim() || '587',
+      smtp_user:   document.getElementById('smtpUser').value.trim(),
+      smtp_from:   document.getElementById('smtpFrom').value.trim(),
       smtp_secure: document.getElementById('smtpSecure').checked ? 'true' : 'false',
     };
+    // N'envoie smtp_pass que si l'utilisateur a tapé quelque chose
+    // (champ vide = inchangé, la valeur en DB est conservée)
+    if (passVal) body.smtp_pass = passVal;
+
     const res = await apiFetch('/admin/settings', { method: 'PUT', body: JSON.stringify(body) });
     const d = await res.json();
-    showAlert('smtpTestResult', res.ok ? 'success' : 'error', res.ok ? '✅ SMTP sauvegardé' : d.error);
+    if (res.ok) {
+      // Réinitialise le champ après sauvegarde pour montrer que le pass est configuré
+      document.getElementById('smtpPass').value = '';
+      document.getElementById('smtpPass').placeholder = '•••••••• (inchangé — laissez vide pour conserver)';
+      showAlert('smtpTestResult', 'success', '✅ SMTP sauvegardé');
+    } else {
+      showAlert('smtpTestResult', 'error', '❌ ' + (d.error || 'Erreur inconnue'));
+    }
   });
 
   document.getElementById('testSmtpBtn').addEventListener('click', async () => {
     const btn = document.getElementById('testSmtpBtn');
+    btn.textContent = '⏳ Test en cours…';
     btn.disabled = true;
-    const res = await apiFetch('/admin/settings/test-smtp', { method: 'POST' });
-    const d = await res.json();
-    showAlert('smtpTestResult', res.ok ? 'success' : 'error', res.ok ? '✅ ' + d.message : '❌ ' + d.error);
-    btn.disabled = false;
+    try {
+      const res = await apiFetch('/admin/settings/test-smtp', { method: 'POST' });
+      const d = await res.json();
+      if (res.ok) {
+        showAlert('smtpTestResult', 'success', '✅ Connexion SMTP réussie !');
+      } else {
+        // Affiche le message d'erreur complet pour faciliter le diagnostic
+        showAlert('smtpTestResult', 'error', '❌ ' + (d.error || 'Erreur inconnue'));
+      }
+    } catch (e) {
+      showAlert('smtpTestResult', 'error', '❌ Erreur réseau : ' + e.message);
+    } finally {
+      btn.textContent = '🔌 Tester la connexion';
+      btn.disabled = false;
+    }
   });
 
 

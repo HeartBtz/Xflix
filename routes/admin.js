@@ -148,8 +148,8 @@ router.put('/settings', async (req, res) => {
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         let val = String(req.body[key]);
-        // Don't overwrite pw if masked placeholder sent
-        if (key === 'smtp_pass' && val === '••••••••') continue;
+        // Ne jamais écraser smtp_pass avec placeholder masqué ou chaîne vide
+        if (key === 'smtp_pass' && (val === '••••••••' || val === '')) continue;
         await setSetting(key, val);
       }
     }

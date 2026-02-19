@@ -408,19 +408,35 @@ async function runEncodeJob(jobId, resolvedPreset, deviceKey) {
  * Replace the original file with the encoded version.
  * Updates the DB media record with new codec/size info.
  */
+/**
+ * Cross-device safe file move.
+ * fs.rename fails with EXDEV when src and dst are on different filesystems.
+ * Fallback: copy then unlink.
+ */
+async function moveFile(src, dst) {
+  try {
+    await fs.promises.rename(src, dst);
+  } catch (e) {
+    if (e.code !== 'EXDEV') throw e;
+    // Cross-device: copy then delete source
+    await fs.promises.copyFile(src, dst);
+    await fs.promises.unlink(src);
+  }
+}
+
 async function replaceOriginal(mediaId, originalPath, encodedPath, targetCodec) {
   const ext = path.extname(encodedPath);
   const dir = path.dirname(originalPath);
   const base = path.basename(originalPath, path.extname(originalPath));
   const newPath = path.join(dir, base + ext);
 
-  // Backup original
+  // Backup original (same filesystem as original — rename always works here)
   const backupPath = originalPath + '.bak';
   await fs.promises.rename(originalPath, backupPath);
 
   try {
-    // Move encoded file to original location
-    await fs.promises.rename(encodedPath, newPath);
+    // Move encoded file to original's directory (may be cross-device → copyFile fallback)
+    await moveFile(encodedPath, newPath);
     // Update DB
     const size = (await fs.promises.stat(newPath)).size;
     const codec = targetCodec === 'av1' ? 'av1' : 'hevc';

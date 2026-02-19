@@ -742,7 +742,7 @@ router.post('/encode/enqueue', async (req, res) => {
     if (!presetId) return res.status(400).json({ error: 'No preset selected' });
     const jobIds = await encoder.enqueueJobs(mediaIds, { presetId, quality, replaceOriginal });
     res.json({ message: `${jobIds.length} job(s) enqueued`, jobIds });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[encode:route] enqueue error:', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // POST /admin/encode/cancel/:id — cancel a single job
@@ -750,7 +750,7 @@ router.post('/encode/cancel/:id', async (req, res) => {
   try {
     await encoder.cancelJob(Number(req.params.id));
     res.json({ message: 'Cancelled' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error(`[encode:route] cancel #${req.params.id} error:`, e.message); res.status(500).json({ error: e.message }); }
 });
 
 // POST /admin/encode/cancel-all — cancel all jobs
@@ -766,7 +766,7 @@ router.post('/encode/retry/:id', async (req, res) => {
   try {
     await encoder.retryJob(Number(req.params.id));
     res.json({ message: 'Retried' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error(`[encode:route] retry #${req.params.id} error:`, e.message); res.status(500).json({ error: e.message }); }
 });
 
 // DELETE /admin/encode/job/:id — delete a job record
@@ -774,7 +774,7 @@ router.delete('/encode/job/:id', async (req, res) => {
   try {
     await encoder.deleteJob(Number(req.params.id));
     res.json({ message: 'Deleted' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error(`[encode:route] delete #${req.params.id} error:`, e.message); res.status(500).json({ error: e.message }); }
 });
 
 // POST /admin/encode/workers — set max workers

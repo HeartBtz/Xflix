@@ -189,6 +189,11 @@ async function detectAll(force = false) {
 
   _cache = { nvidia, vaapi, encoders, presets };
   _cacheTs = Date.now();
+  console.log(`[encode:hw] Detection: ${nvidia.length} NVIDIA GPU(s), ${vaapi.length} VA-API device(s), ${encoders.length} FFmpeg encoder(s), ${presets.length} preset(s) built`);
+  if (nvidia.length) console.log(`[encode:hw]   NVIDIA: ${nvidia.map(g => `${g.name} (${g.vram})`).join(', ')}`);
+  if (vaapi.length)  console.log(`[encode:hw]   VA-API: ${vaapi.map(d => `${d.vendor} ${d.device}`).join(', ')}`);
+  console.log(`[encode:hw]   Encoders: ${encoders.join(', ')}`);
+  console.log(`[encode:hw]   Presets: ${presets.map(p => p.id).join(', ')}`);
   return _cache;
 }
 

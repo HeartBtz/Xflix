@@ -165,13 +165,15 @@ function parseDuration(str) {
 
 /* ── Run a single encode job ─────────────────────────────── */
 async function runEncodeJob(jobId) {
+  console.log(`[encode] ▶ Starting job #${jobId}`);
   // Load job from DB
   const [[job]] = await pool.query('SELECT * FROM encode_jobs WHERE id = ?', [jobId]);
-  if (!job) return;
+  if (!job) { console.error(`[encode] ✕ Job #${jobId} not found in DB`); return; }
 
   // Load media for duration
   const [[media]] = await pool.query('SELECT duration, file_path, size FROM media WHERE id = ?', [job.media_id]);
   if (!media) {
+    console.error(`[encode] ✕ Job #${jobId}: media id=${job.media_id} not found in DB`);
     await pool.query("UPDATE encode_jobs SET status='error', error='Media not found', finished_at=NOW() WHERE id=?", [jobId]);
     emit({ type: 'job_error', jobId, error: 'Media not found' });
     return;
@@ -186,6 +188,7 @@ async function runEncodeJob(jobId) {
   const caps = await gpuDetect.detectAll();
   const preset = caps.presets.find(p => p.id === job.preset_id) || caps.presets.find(p => p.encoder === job.encoder);
   if (!preset) {
+    console.error(`[encode] ✕ Job #${jobId}: preset "${job.preset_id}" / encoder "${job.encoder}" not found. Available presets: ${caps.presets.map(p => p.id).join(', ')}`);
     await pool.query("UPDATE encode_jobs SET status='error', error='Preset not found', finished_at=NOW() WHERE id=?", [jobId]);
     emit({ type: 'job_error', jobId, error: 'Preset not found' });
     return;
@@ -198,6 +201,8 @@ async function runEncodeJob(jobId) {
   return new Promise((resolve) => {
     let lastProgress = 0;
     const args = buildFfmpegArgs(inputPath, outputPath, preset, job.quality || 'balanced');
+    console.log(`[encode] Job #${jobId}: ffmpeg ${args.join(' ')}`);
+    console.log(`[encode] Job #${jobId}: input=${inputPath} output=${outputPath} encoder=${preset.encoder} quality=${job.quality} duration=${totalDuration}s`);
     const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     _activeJobs.set(jobId, { process: proc, cancelled: false });
@@ -234,10 +239,12 @@ async function runEncodeJob(jobId) {
     proc.on('close', async (code) => {
       _activeJobs.delete(jobId);
       _running--;
+      console.log(`[encode] Job #${jobId}: ffmpeg exited with code ${code}`);
 
       const jobState = _activeJobs.get(jobId);
       if (jobState?.cancelled) {
         // Was cancelled
+        console.log(`[encode] Job #${jobId}: cancelled by user`);
         await pool.query("UPDATE encode_jobs SET status='cancelled', finished_at=NOW() WHERE id=?", [jobId]);
         try { fs.unlinkSync(outputPath); } catch {}
         emit({ type: 'job_cancelled', jobId });
@@ -247,6 +254,9 @@ async function runEncodeJob(jobId) {
 
       if (code !== 0) {
         const errMsg = stderrBuf.split('\n').filter(l => l.trim()).slice(-3).join(' ').slice(0, 500);
+        console.error(`[encode] ✕ Job #${jobId} FAILED (exit code ${code})`);
+        console.error(`[encode]   stderr (last lines): ${errMsg}`);
+        console.error(`[encode]   full stderr buffer:\n${stderrBuf}`);
         await pool.query("UPDATE encode_jobs SET status='error', error=?, finished_at=NOW() WHERE id=?", [errMsg, jobId]);
         try { fs.unlinkSync(outputPath); } catch {}
         emit({ type: 'job_error', jobId, error: errMsg });
@@ -258,6 +268,9 @@ async function runEncodeJob(jobId) {
       let outputSize = 0;
       try { outputSize = fs.statSync(outputPath).size; } catch {}
 
+      const ratio = media.size ? ((1 - outputSize / media.size) * 100).toFixed(1) : '?';
+      console.log(`[encode] ✓ Job #${jobId} done — ${(media.size/1e6).toFixed(1)} Mo → ${(outputSize/1e6).toFixed(1)} Mo (${ratio}% saved)`);
+
       await pool.query(
         "UPDATE encode_jobs SET status='done', progress=100, file_size_after=?, finished_at=NOW() WHERE id=?",
         [outputSize, jobId]
@@ -267,9 +280,12 @@ async function runEncodeJob(jobId) {
 
       // If replace_original is set, swap files
       if (job.replace_original) {
+        console.log(`[encode] Job #${jobId}: replacing original file…`);
         try {
           await replaceOriginal(job.media_id, inputPath, outputPath, job.target_codec);
+          console.log(`[encode] Job #${jobId}: original replaced successfully`);
         } catch (e) {
+          console.error(`[encode] ✕ Job #${jobId}: failed to replace original: ${e.message}`);
           emit({ type: 'job_replace_error', jobId, error: e.message });
         }
       }
@@ -316,7 +332,10 @@ async function replaceOriginal(mediaId, originalPath, encodedPath, targetCodec) 
 
 /* ── Queue processor ─────────────────────────────────────── */
 async function processQueue() {
-  if (_running >= _maxWorkers) return;
+  if (_running >= _maxWorkers) {
+    console.log(`[encode] Queue: max workers reached (${_running}/${_maxWorkers}), waiting…`);
+    return;
+  }
 
   // Get next pending job
   const [[nextJob]] = await pool.query(
@@ -324,9 +343,10 @@ async function processQueue() {
   );
   if (!nextJob) return;
 
+  console.log(`[encode] Queue: dispatching job #${nextJob.id} (workers: ${_running + 1}/${_maxWorkers})`);
   _running++;
   runEncodeJob(nextJob.id).catch(e => {
-    console.error(`[encoder] Job ${nextJob.id} failed:`, e.message);
+    console.error(`[encode] ✕ Job #${nextJob.id} unhandled error:`, e.message, e.stack);
     _running--;
   });
 
@@ -345,9 +365,13 @@ async function processQueue() {
  * @returns {Promise<number[]>} created job IDs
  */
 async function enqueueJobs(mediaIds, { presetId, quality = 'balanced', replaceOriginal = false } = {}) {
+  console.log(`[encode] Enqueue request: ${mediaIds.length} media(s), preset=${presetId}, quality=${quality}, replace=${replaceOriginal}`);
   const caps = await gpuDetect.detectAll();
   const preset = caps.presets.find(p => p.id === presetId);
-  if (!preset) throw new Error(`Unknown preset: ${presetId}`);
+  if (!preset) {
+    console.error(`[encode] ✕ Unknown preset "${presetId}". Available: ${caps.presets.map(p => p.id).join(', ')}`);
+    throw new Error(`Unknown preset: ${presetId}`);
+  }
 
   const jobIds = [];
 
@@ -381,14 +405,15 @@ async function enqueueJobs(mediaIds, { presetId, quality = 'balanced', replaceOr
  * Cancel a job (kill the ffmpeg process if running, or remove from queue).
  */
 async function cancelJob(jobId) {
+  console.log(`[encode] Cancelling job #${jobId}`);
   const active = _activeJobs.get(jobId);
   if (active) {
     active.cancelled = true;
     try { active.process.kill('SIGTERM'); } catch {}
-    // Cleanup handled in the close handler
+    console.log(`[encode] Job #${jobId}: SIGTERM sent to ffmpeg pid=${active.process.pid}`);
   } else {
-    // Just set status to cancelled if pending
     await pool.query("UPDATE encode_jobs SET status='cancelled', finished_at=NOW() WHERE id=? AND status='pending'", [jobId]);
+    console.log(`[encode] Job #${jobId}: marked cancelled (was pending)`);
   }
   emit({ type: 'job_cancelled', jobId });
 }

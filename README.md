@@ -48,6 +48,14 @@ Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 - Infinite scroll on performer video lists (replaces pagination when enabled).
 - Video technical info (codec, fps, bitrate, audio sample rate) extracted via `ffprobe` and shown in the player.
 
+### v2.0 — Encoding system & Admin redesign
+
+- New video re-encoding subsystem: encode to H.265 (HEVC) or AV1 with CPU or hardware backends.
+- Automatic hardware detection (NVIDIA NVENC, Intel QSV, VA-API) with CPU fallback (libx265, SVT-AV1, libaom-av1).
+- Worker pool and queue management for multi-GPU / concurrent encodes; enqueue from Admin UI.
+- Real-time progress (SSE) and job history with cancel/retry/delete actions.
+- Admin UI completely redesigned (modern dark theme, frosted navbar, Encodage tab).
+
 
 ### Accounts & social
 - **Register / Login** via JWT (7-day expiry by default, configurable)
@@ -66,6 +74,39 @@ Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 - **Batch thumbnail** generation with live progress
 - **User management**: change role, delete account
 - **SMTP settings** editable at runtime (no restart needed)
+
+## Encoding
+
+XFlix now includes an integrated video re-encoding subsystem accessible from the Admin UI (Encodage).
+
+- Supported target codecs: **H.265 (hevc)** and **AV1**.
+- Backends: NVIDIA NVENC, Intel QSV, VA-API (AMD/Intel), and CPU encoders (`libx265`, `libsvtav1`, `libaom-av1`).
+- Detects available hardware and exposes presets in the Admin → Encodage tab.
+- Features: job queue, multi-worker encoding, per-job progress (SSE), job history, cancel/retry/delete, and optional replacement of originals with rollback safety.
+
+API endpoints (Admin-only):
+
+- `GET /admin/encode/capabilities` — hardware + presets
+- `GET /admin/encode/status` — current queue status
+- `GET /admin/encode/history` — paginated job history
+- `POST /admin/encode/enqueue` — enqueue media IDs for encoding
+- `POST /admin/encode/cancel/:id` — cancel single job
+- `POST /admin/encode/cancel-all` — cancel all jobs
+- `POST /admin/encode/retry/:id` — retry a failed job
+- `DELETE /admin/encode/job/:id` — delete job record
+- `POST /admin/encode/workers` — set max worker count
+- `GET /admin/encode/videos` — searchable/filterable video list
+- `GET /admin/encode/codec-stats` — counts/sizes by codec
+- `GET /admin/encode/events` — SSE event stream for job progress
+
+Database: migration adds the `encode_jobs` table (job metadata, progress, paths, timestamps).
+
+Requirements & notes:
+
+- FFmpeg 6+ recommended; encoders should be compiled in (NVENC/VAAPI/QSV where applicable).
+- If using NVENC, install NVIDIA drivers and `nvidia-smi` should be available; VA-API requires `/dev/dri` access.
+- On systems without GPU support, CPU encoders are used (slower, but reliable).
+- Large-scale encoding is disk/CPU/GPU intensive — tune `encMaxWorkers` in the Admin panel.
 
 ### Performance
 | Technique | Effect |

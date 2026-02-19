@@ -161,8 +161,8 @@ Add optional screenshots of the new Admin UI to the repository (recommended path
 Example Markdown inclusion in `README.md`:
 
 ```markdown
-![Admin Encodage tab](docs/screenshots/encodage.png)
-![Admin Dashboard](docs/screenshots/dashboard.png)
+![Admin Encodage tab](docs/screenshots/encodage.svg)
+![Admin Dashboard](docs/screenshots/dashboard.svg)
 ```
 
 Tips:

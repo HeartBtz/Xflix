@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+  <rect width="100%" height="100%" fill="#0b0b0e"/>
+  <g transform="translate(60,60)">
+    <rect width="1080" height="600" rx="14" fill="#131318" stroke="#1a1a22"/>
+    <text x="540" y="120" font-family="Inter, Arial, sans-serif" font-size="40" fill="#e6eef8" text-anchor="middle">Admin — Encodage</text>
+    <rect x="80" y="180" width="180" height="120" rx="8" fill="#111" stroke="#263244"/>
+    <rect x="300" y="180" width="400" height="120" rx="8" fill="#0f1720" stroke="#28323f"/>
+    <rect x="740" y="180" width="200" height="120" rx="8" fill="#07121a" stroke="#1c2a33"/>
+    <text x="180" y="230" font-size="16" fill="#8fa6c8" text-anchor="middle">Hardware</text>
+    <text x="500" y="230" font-size="16" fill="#8fa6c8" text-anchor="middle">Queue / Jobs</text>
+    <text x="840" y="230" font-size="16" fill="#8fa6c8" text-anchor="middle">History</text>
+    <g transform="translate(120,340)">
+      <rect width="900" height="180" rx="8" fill="#0b1220" stroke="#243040"/>
+      <text x="450" y="90" font-size="18" fill="#a7c1e8" text-anchor="middle">Sélection de vidéos / grille / thumbnails</text>
+    </g>
+  </g>
+</svg>

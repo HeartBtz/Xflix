@@ -23,7 +23,6 @@ const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const path = require('path');
 const { initSchema, pool } = require('./db');
 
@@ -67,14 +66,6 @@ app.use(compression({
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
-// Rate limiting on auth endpoints (prevent brute-force)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 min
-  max: 30,                    // 30 attempts per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests — try again later' },
-});
 
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: 0,              // toujours revalider (ETag/304)
@@ -83,7 +74,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 // Routes
-app.use('/auth',      authLimiter, require('./routes/auth'));
+app.use('/auth',      require('./routes/auth'));
 app.use('/social',    require('./routes/social'));
 app.use('/admin',     require('./routes/admin'));
 app.use('/api',       require('./routes/api'));

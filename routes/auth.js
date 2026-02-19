@@ -25,6 +25,16 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
+
+// Limite uniquement les routes exposées au brute-force
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 min
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests — try again later' },
+});
 const bcrypt = require('bcryptjs');
 const {
   createUser, getUserByEmail, getUserById, getUserByResetToken,
@@ -35,7 +45,7 @@ const { signToken, requireAuth } = require('../middleware/auth');
 const { sendPasswordReset } = require('../services/mail');
 
 /* ── Register ─────────────────────────────────────────────────── */
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   try {
     const { username, email, password } = req.body || {};
     if (!username || !email || !password) return res.status(400).json({ error: 'username, email, password required' });
@@ -66,7 +76,7 @@ router.post('/register', async (req, res) => {
 });
 
 /* ── Login ────────────────────────────────────────────────────── */
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
@@ -111,7 +121,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
 });
 
 /* ── Forgot password ──────────────────────────────────────────── */
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', authLimiter, async (req, res) => {
   try {
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: 'email required' });
@@ -140,7 +150,7 @@ router.post('/forgot-password', async (req, res) => {
 });
 
 /* ── Reset password ────────────────────────────────────────────── */
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', authLimiter, async (req, res) => {
   try {
     const { token, newPassword } = req.body || {};
     if (!token || !newPassword) return res.status(400).json({ error: 'token and newPassword required' });

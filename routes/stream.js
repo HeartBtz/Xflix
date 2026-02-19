@@ -132,4 +132,22 @@ router.get('/thumb/:id', async (req, res) => {
   } catch(e) { res.status(500).send('Server error'); }
 });
 
+/**
+ * Télécharger un média (force download avec nom de fichier original)
+ * GET /download/:id
+ */
+router.get('/download/:id', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM media WHERE id = ?', [Number(req.params.id)]);
+    if (!rows.length) return res.status(404).send('Not found');
+    const media = rows[0];
+    if (!fs.existsSync(media.file_path)) return res.status(404).send('File not found on disk');
+    const filename = path.basename(media.file_path);
+    res.setHeader('Content-Type', media.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '\\"')}"`);
+    res.setHeader('Content-Length', fs.statSync(media.file_path).size);
+    fs.createReadStream(media.file_path, { highWaterMark: 256 * 1024 }).pipe(res);
+  } catch(e) { res.status(500).send('Server error'); }
+});
+
 module.exports = router;

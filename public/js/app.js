@@ -235,7 +235,10 @@ function getSortParams() {
   return params;
 }
 
-$('sortPerformers').addEventListener('change', () => loadPerformers(getSortParams()));
+$('sortPerformers').addEventListener('change', () => {
+  localStorage.setItem('xflix_sort_performers', $('sortPerformers').value);
+  loadPerformers(getSortParams());
+});
 
 /* ── Filter Chips ───────────────────────────────────────────────── */
 $qa('.chip[data-filter]').forEach(chip => {
@@ -515,7 +518,10 @@ function renderVideoCards(videos, grid, showPerformer = false) {
   grid.querySelectorAll('video[data-src]').forEach(v => vio.observe(v));
 }
 
-$('sortVideos').addEventListener('change', () => loadVideos(1));
+$('sortVideos').addEventListener('change', () => {
+  localStorage.setItem('xflix_sort_videos', $('sortVideos').value);
+  loadVideos(1);
+});
 $('filterFavVideos').addEventListener('change', () => loadVideos(1));
 
 // Auto-apply filters on change
@@ -563,7 +569,10 @@ function renderPhotoCards(photos, grid) {
   `).join('');
 }
 
-$('sortPhotos').addEventListener('change', () => loadPhotos(1));
+$('sortPhotos').addEventListener('change', () => {
+  localStorage.setItem('xflix_sort_photos', $('sortPhotos').value);
+  loadPhotos(1);
+});
 $('filterFavPhotos').addEventListener('change', () => loadPhotos(1));
 
 /* ── Pagination ─────────────────────────────────────────────────── */
@@ -646,6 +655,10 @@ function openVideo(idx) {
   player.src = `/stream/${v.id}`;
   player.playbackRate = 1;
   player.load();
+
+  // Set download link
+  const dlBtn = $('vpDownload');
+  if (dlBtn) { dlBtn.href = `/download/${v.id}`; dlBtn.setAttribute('download', v.filename || ''); }
 
   // Resume from saved position
   player.addEventListener('loadedmetadata', function onMeta() {
@@ -858,6 +871,10 @@ function openPhoto(idx) {
   $('lightboxTitle').textContent = ph.filename;
   $('lightboxCounter').textContent = `${idx + 1} / ${state.photos.length}`;
 
+  // Set download link
+  const dlPhoto = $('dlCurrentPhoto');
+  if (dlPhoto) { dlPhoto.href = `/download/${ph.id}`; dlPhoto.setAttribute('download', ph.filename || ''); }
+
   const favBtn = $('favCurrentPhoto');
   favBtn.textContent = ph.favorite ? '❤️' : '♡';
   favBtn.classList.toggle('active', !!ph.favorite);
@@ -949,6 +966,11 @@ document.addEventListener('keydown', e => {
       case 'p': case 'P':
         $('vpPiP').click();
         break;
+      case 'd': case 'D': {
+        const dl = $('vpDownload');
+        if (dl && dl.href) { const a = document.createElement('a'); a.href = dl.href; a.download = dl.download || ''; a.click(); }
+        break;
+      }
       case ',':
         e.preventDefault();
         if (p.paused) p.currentTime = Math.max(0, p.currentTime - 1/30);
@@ -1729,6 +1751,17 @@ window.loadPhotos = loadPhotos;
 
 // Initial load
 authInit();
+
+// Restore sort preferences from previous session
+(function restoreSortPrefs() {
+  const sp = localStorage.getItem('xflix_sort_performers');
+  const sv = localStorage.getItem('xflix_sort_videos');
+  const sph = localStorage.getItem('xflix_sort_photos');
+  if (sp && $('sortPerformers').querySelector(`option[value="${sp}"]`)) $('sortPerformers').value = sp;
+  if (sv && $('sortVideos').querySelector(`option[value="${sv}"]`)) $('sortVideos').value = sv;
+  if (sph && $('sortPhotos').querySelector(`option[value="${sph}"]`)) $('sortPhotos').value = sph;
+})();
+
 loadPerformers({});
 loadHeroStats();
 checkScanOnLoad();

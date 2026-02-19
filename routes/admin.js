@@ -3,7 +3,7 @@ const router   = express.Router();
 const path     = require('path');
 const fs       = require('fs');
 const crypto   = require('crypto');
-const { pool, getSetting, setSetting, listUsers, updateUserRole, deleteUser, countAdmins } = require('../db');
+const { pool, getSetting, setSetting, listUsers, updateUserRole, deleteUser, countAdmins, updatePerformerCounts } = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { testSmtp } = require('../services/mail');
 const scanner  = require('../scanner');
@@ -623,6 +623,8 @@ router.post('/purge-short-videos', async (req, res) => {
     send({ status: 'done', dry_run: false, deleted, total: rows.length, errors: errors.length,
       line: `\n✅ ${deleted} vidéo(s) supprimée(s)${errors.length ? ` — ${errors.length} erreur(s)` : ''}.` });
     if (!closed) res.end();
+    // Mettre à jour les compteurs performers en arrière-plan
+    updatePerformerCounts().catch(e => console.error('[purge updatePerformerCounts]', e.message));
   } catch(e) {
     send({ status: 'error', error: e.message, line: `❌ Erreur : ${e.message}` });
     if (!closed) res.end();

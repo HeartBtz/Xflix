@@ -1,26 +1,42 @@
+# ─────────────────────────────────────────────────────────────────
+#  XFlix — .gitignore
+# ─────────────────────────────────────────────────────────────────
+
 # Dependencies
 node_modules/
 
-# Environment secrets
+# Environment secrets — copy .env.example → .env and fill in your values
 .env
 
-# Generated thumbnails (large binary files)
-data/thumbs/
+# Generated thumbnails — large binary files, re-generated at runtime.
+# The directory itself must exist: it is preserved via data/thumbs/.gitkeep
+data/thumbs/*
+!data/thumbs/.gitkeep
+
+# PM2 runtime files
+.pm2/
 
 # Logs
 *.log
 npm-debug.log*
 
-# Archives / build artifacts
+# Build artefacts / archives
 *.tar.gz
 *.zip
 *.tgz
+dist/
+build/
 
 # OS metadata
 .DS_Store
 Thumbs.db
 
-# Editor
+# Editor artefacts
 .vscode/
+.idea/
 *.swp
 *.swo
+*.vim
+
+# Test coverage
+coverage/

@@ -1,3 +1,24 @@
+/**
+ * db.js — Database layer
+ *
+ * Creates the mysql2 connection pool and owns every schema migration.
+ * All DB-related functions exported here are the single source of truth
+ * for data access across the entire application — no raw pool.query calls
+ * should live in route files for business logic (only for ad-hoc queries).
+ *
+ * Schema overview (simplified ER)
+ * ────────────────────────────────────────────────────────────────────────────
+ *   users ←── comments ──→ media ←── performers
+ *   users ←── media_reactions ──→ media
+ *   users ←── user_favorites  ──→ media
+ *   performers ←── media  (ON DELETE CASCADE)
+ *   performers ←── performer_tags
+ *   tags       ←── performer_tags  (many-to-many)
+ *   settings   (key/value store for SMTP + app config)
+ *
+ * Migrations are idempotent (IF NOT EXISTS / ADD COLUMN IF NOT EXISTS)
+ * so initSchema() is safe to call on every boot.
+ */
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 

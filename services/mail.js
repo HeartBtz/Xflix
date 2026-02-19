@@ -1,3 +1,19 @@
+/**
+ * services/mail.js — Transactional email via nodemailer
+ *
+ * SMTP credentials are stored in the `settings` DB table and can be
+ * configured from the Admin → Settings panel at runtime (no restart needed).
+ *
+ * If SMTP is not configured:
+ *   - sendPasswordReset() throws, which causes auth/forgot-password to
+ *     return the reset URL directly in the JSON response (development mode).
+ *
+ * Exported functions
+ * ────────────────
+ *   sendMail({ to, subject, html, text }) — generic mailer
+ *   sendPasswordReset(email, username, resetUrl) — sends the reset email
+ *   testSmtp()  — verifies SMTP connectivity (used by admin test endpoint)
+ */
 const nodemailer = require('nodemailer');
 const { getSettings } = require('../db');
 

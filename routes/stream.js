@@ -7,6 +7,28 @@ const { generateVideoThumb, generatePhotoThumb } = require('../scanner');
 
 const THUMB_DIR = process.env.THUMB_DIR || path.join(__dirname, '..', 'data', 'thumbs');
 
+/* ── Concurrency limiter for on-demand thumb generation ───────────
+ * Limit to MAX_CONCURRENT_THUMBS simultaneous ffmpeg/sharp calls.
+ * Also dedup: if the same id is already being generated, all requests
+ * share the same promise instead of spawning multiple processes.
+ * ─────────────────────────────────────────────────────────────────*/
+const MAX_CONCURRENT_THUMBS = 3;
+let _activeThumbGen = 0;
+const _thumbQueue = [];             // resolve functions waiting for a slot
+const _thumbInProgress = new Map(); // mediaId → Promise<string|null>
+
+function _acquireThumbSlot() {
+  if (_activeThumbGen < MAX_CONCURRENT_THUMBS) {
+    _activeThumbGen++;
+    return Promise.resolve();
+  }
+  return new Promise(resolve => _thumbQueue.push(resolve));
+}
+function _releaseThumbSlot() {
+  const next = _thumbQueue.shift();
+  if (next) { next(); } else { _activeThumbGen--; }
+}
+
 /**
  * Stream a video by media ID with full Range support and optimized chunking
  * GET /stream/:id
@@ -106,12 +128,38 @@ router.get('/thumb/:id', async (req, res) => {
       return serveThumb(media.thumb_path);
     }
 
-    // Auto-generate thumb on first request
+    // Auto-generate thumb on first request — limited to MAX_CONCURRENT_THUMBS
+    // and deduplicated: concurrent requests for the same id share one promise.
+    // Fast-fail (503) when the queue is long so browser connections are freed
+    // immediately for API requests. Frontend will retry loading the image later.
     let thumbPath = null;
-    if (media.type === 'photo' && fs.existsSync(media.file_path)) {
-      thumbPath = await generatePhotoThumb(media.file_path, media.id);
-    } else if (media.type === 'video' && fs.existsSync(media.file_path)) {
-      thumbPath = await generateVideoThumb(media.file_path, media.id);
+    if (_thumbInProgress.has(mediaId)) {
+      // Another request is already generating this thumb — wait for it
+      thumbPath = await _thumbInProgress.get(mediaId);
+    } else if (
+      (media.type === 'photo' || media.type === 'video') &&
+      fs.existsSync(media.file_path)
+    ) {
+      // If too many pending slots already, fail immediately so the browser is
+      // freed to make API calls. The img onerror will retry later.
+      if (_thumbQueue.length >= MAX_CONCURRENT_THUMBS) {
+        return res.status(503).set('Retry-After', '4').send('Busy');
+      }
+      const genPromise = (async () => {
+        await _acquireThumbSlot();
+        try {
+          if (media.type === 'photo') {
+            return await generatePhotoThumb(media.file_path, media.id);
+          } else {
+            return await generateVideoThumb(media.file_path, media.id);
+          }
+        } finally {
+          _thumbInProgress.delete(mediaId);
+          _releaseThumbSlot();
+        }
+      })();
+      _thumbInProgress.set(mediaId, genPromise);
+      thumbPath = await genPromise;
     }
 
     if (thumbPath && fs.existsSync(thumbPath)) {

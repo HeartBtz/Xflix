@@ -1,6 +1,31 @@
+/**
+ * routes/social.js — Social features: comments, reactions, per-user favourites
+ *
+ * Mounted under /social in server.js.
+ *
+ * Endpoint summary
+ * ────────────────
+ * Comments
+ *   GET    /social/comments/:mediaId  — paginated comment list (public)
+ *   POST   /social/comments/:mediaId  — post a comment (auth required)
+ *   PATCH  /social/comments/:id       — edit own comment (or admin)
+ *   DELETE /social/comments/:id       — delete own comment (or admin)
+ *
+ * Reactions
+ *   GET  /social/reactions/:mediaId   — like/dislike counts + user’s own (public)
+ *   POST /social/reactions/:mediaId   — add / toggle reaction (auth required)
+ *
+ * Per-user Favourites
+ *   GET  /social/favorites            — current user’s favourited media
+ *   POST /social/favorites/:mediaId   — toggle a media as user-favourite
+ *   GET  /social/favorites/:mediaId   — check if user has favourited a media
+ *
+ * Note: there are TWO types of favourites:
+ *   • Global  — media.favorite column (admin-level, shown to everyone)
+ *   • Per-user — user_favorites table (personal, requires login)
+ */
 const express = require('express');
 const router = express.Router();
-const { pool } = require('../db');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 
 /* ══════════════════════════════════════════════════════════════════

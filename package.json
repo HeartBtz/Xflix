@@ -1,13 +1,23 @@
 {
   "name": "xflix",
-  "version": "1.0.0",
-  "description": "Netflix-like media browser for local content",
+  "version": "1.2.0",
+  "description": "Self-hosted Netflix-like media browser for local video/photo collections",
   "main": "server.js",
+  "license": "MIT",
+  "author": "HeartBtz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HeartBtz/Xflix.git"
+  },
+  "keywords": [
+    "media-server", "self-hosted", "streaming", "local-media",
+    "node", "express", "mariadb", "ffmpeg"
+  ],
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "scan": "node cli.js scan",
-    "clear": "node cli.js clear"
+    "start":   "node server.js",
+    "dev":     "nodemon server.js",
+    "scan":    "node cli.js scan",
+    "clear":   "node cli.js clear"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

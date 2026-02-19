@@ -1,3 +1,23 @@
+/**
+ * server.js — XFlix entry point
+ *
+ * Boots Express, registers all routers and starts listening.
+ * DB schema is initialised here with automatic retry so the process
+ * survives MariaDB taking a few seconds to be ready on startup.
+ *
+ * Route map
+ * ─────────
+ *   /auth/**      — register, login, password-reset, profile  (routes/auth.js)
+ *   /social/**    — comments, reactions, per-user favourites   (routes/social.js)
+ *   /admin/**     — scan, users, settings, duplicates, clean   (routes/admin.js)
+ *   /api/**       — performers, media, search, stats           (routes/api.js)
+ *   /stream/:id   — video streaming with Range support         (routes/stream.js)
+ *   /photo/:id    — photo serving with ETag cache              (routes/stream.js)
+ *   /thumb/:id    — thumbnail serving + on-demand generation   (routes/stream.js)
+ *   /download/:id — force-download with original filename      (routes/stream.js)
+ *
+ * Environment variables → see .env.example
+ */
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -44,7 +64,8 @@ app.use('/admin',     require('./routes/admin'));
 app.use('/api',       require('./routes/api'));
 app.use('/',          require('./routes/stream'));
 
-// SPA fallback
+// SPA fallback — serve index.html for any unknown route so the
+// client-side router can handle deep links (e.g. /reset-password?token=…)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

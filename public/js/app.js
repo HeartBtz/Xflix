@@ -30,6 +30,20 @@ const $ = id => document.getElementById(id);
 const $q = sel => document.querySelector(sel);
 const $qa = sel => document.querySelectorAll(sel);
 
+/* ── Global lazy-loader for video[data-src] thumbnails ──────────
+ * Used by makeVideoThumb (fallback when thumb generation fails).
+ * Observes any video[data-src] elements added to the DOM at any
+ * time, including those injected by handleThumbError.
+ * ─────────────────────────────────────────────────────────────── */
+const videoThumbObserver = new IntersectionObserver((entries, obs) => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    const vid = entry.target;
+    if (vid.dataset.src) { vid.src = vid.dataset.src; delete vid.dataset.src; }
+    obs.unobserve(vid);
+  });
+}, { rootMargin: '300px' });
+
 /* ── Utilities ──────────────────────────────────────────────────── */
 function formatSize(bytes) {
   if (!bytes) return '0 B';
@@ -93,15 +107,34 @@ function escapeHtml(str) {
   return d.innerHTML;
 }
 
-// Creates a lazy video element to use as thumbnail fallback
+// Creates a lazy video element to use as thumbnail fallback.
+// Uses data-src + global IntersectionObserver to load the stream
+// only when the card scrolls into view.
 function makeVideoThumb(id) {
   const v = document.createElement('video');
-  v.src = `/stream/${id}#t=5`;
+  v.dataset.src = `/stream/${id}#t=5`;
   v.preload = 'metadata';
   v.muted = true;
   v.playsInline = true;
   v.style.cssText = 'width:100%;height:100%;object-fit:cover;pointer-events:none';
+  videoThumbObserver.observe(v);
   return v;
+}
+
+// Handles thumbnail load error: retries a few times (server may be busy
+// generating the thumb) before falling back to a lazy video stream element.
+function handleThumbError(img, id) {
+  const retries = (img._thumbRetries || 0) + 1;
+  img._thumbRetries = retries;
+  if (retries <= 4) {
+    // Retry with back-off: 2s, 4s, 6s, 8s — avoids hammering the server
+    setTimeout(() => {
+      if (img.isConnected) img.src = `/thumb/${id}?r=${retries}`;
+    }, retries * 2000);
+  } else {
+    // Give up: display lazy video stream as fallback
+    if (img.isConnected) img.replaceWith(makeVideoThumb(id));
+  }
 }
 
 /* ── Navigation ─────────────────────────────────────────────────── */
@@ -488,7 +521,7 @@ function renderVideoCards(videos, grid, showPerformer = false) {
     <div class="video-card" onclick="openVideo(${idx})">
       <div class="video-thumb-wrapper">
         <img src="/thumb/${v.id}" alt="${escapeHtml(v.filename)}" loading="lazy"
-          onerror="this.replaceWith(makeVideoThumb(${v.id}))"
+          onerror="handleThumbError(this,${v.id})"
           style="width:100%;height:100%;object-fit:cover;display:block">
         <div class="play-overlay"><div class="play-btn">▶</div></div>
         ${v.duration ? `<div class="video-duration">${formatDuration(v.duration)}</div>` : ''}
@@ -505,17 +538,6 @@ function renderVideoCards(videos, grid, showPerformer = false) {
       </div>
     </div>
   `).join('');
-
-  // Lazy-load video elements (injected by onerror) via IntersectionObserver
-  const vio = new IntersectionObserver((entries, obs) => {
-    entries.forEach(entry => {
-      if (!entry.isIntersecting) return;
-      const vid = entry.target;
-      if (vid.dataset.src) { vid.src = vid.dataset.src; delete vid.dataset.src; }
-      obs.unobserve(vid);
-    });
-  }, { rootMargin: '300px' });
-  grid.querySelectorAll('video[data-src]').forEach(v => vio.observe(v));
 }
 
 $('sortVideos').addEventListener('change', () => {
@@ -1540,7 +1562,7 @@ async function loadMyFavorites() {
       html += '<h3 class="subsection-title">Videos (' + videos.length + ')</h3>';
       html += '<div class="media-grid videos-grid">' + videos.map(v =>
         '<div class="media-card video-card" onclick="openVideoById(' + v.id + ')">' +
-        '<div class="media-thumb-wrap"><img src="/thumb/' + v.id + '" loading="lazy" onerror="this.style.display=\'none\'"></div>' +
+        '<div class="media-thumb-wrap"><img src="/thumb/' + v.id + '" loading="lazy" onerror="handleThumbError(this,' + v.id + ')"></div>' +
         '<div class="media-info"><span class="media-name">' + escapeHtml(v.filename) + '</span>' +
         (v.performer_name ? '<span class="media-meta">' + escapeHtml(v.performer_name) + '</span>' : '') +
         '</div></div>'
@@ -1748,6 +1770,7 @@ window.openVideo = openVideo;
 window.openPhoto = openPhoto;
 window.loadVideos = loadVideos;
 window.loadPhotos = loadPhotos;
+window.handleThumbError = handleThumbError;
 
 // Initial load
 authInit();

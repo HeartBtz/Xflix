@@ -1,3 +1,39 @@
+/**
+ * scanner.js — Media scanner, thumbnail generator, enrichment pipeline
+ *
+ * Responsibilities
+ * ────────────────
+ * 1. scanDirectory(mode)         — walk MEDIA_DIR, upsert performers and
+ *                                   batch-insert new media rows. Supports
+ *                                   live progress via SSE callback.
+ * 2. enrichDurations(concurrency) — post-scan background job: fill in
+ *                                   video durations using ffprobe.
+ * 3. generateMissingThumbs()     — post-scan background job: generate
+ *                                   JPEG thumbnails for recent media that
+ *                                   lack one.
+ * 4. generateVideoThumb()        — on-demand: extract a single JPEG frame
+ *                                   from a video via ffmpeg.
+ * 5. generatePhotoThumb()        — on-demand: resize a photo to 320px via
+ *                                   sharp.
+ *
+ * Design decisions
+ * ────────────────
+ * - walkFiles() is an async generator so large directories (60 000+
+ *   files) don't block the event loop between readdir calls.
+ * - Insertions use INSERT IGNORE batches of 500 rows to minimise
+ *   round-trips while staying idempotent.
+ * - Scan state is a plain object in module scope — one scan at a time.
+ * - ffmpeg / sharp are required lazily with try/catch so the app still
+ *   starts (without thumb generation) if those binaries are absent.
+ *
+ * Expected directory layout under MEDIA_DIR
+ * ────────────────────────────────────────
+ *   MEDIA_DIR/
+ *   ├── PerformerName/       ← becomes one performers row
+ *   │   ├── *.mp4 / *.jpg      ← any depth inside the subdir
+ *   │   └── nested/sub/dirs/
+ *   └── AnotherPerformer/
+ */
 const fs = require('fs');
 const path = require('path');
 const { upsertPerformer, batchInsertMedia, updatePerformerCounts, getAllExistingFilePaths, pool } = require('./db');

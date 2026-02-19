@@ -1,3 +1,52 @@
+/**
+ * routes/admin.js — Admin panel backend
+ *
+ * All routes require an authenticated user with role=‘admin’
+ * (enforced by the requireAdmin middleware applied at the top of this file).
+ * Mounted under /admin in server.js.
+ *
+ * Endpoint summary
+ * ────────────────
+ * Dashboard
+ *   GET  /admin/stats                     — user/media/comment/reaction counts
+ *
+ * User management
+ *   GET    /admin/users                   — paginated user list with search
+ *   PATCH  /admin/users/:id/role          — promote / demote user
+ *   DELETE /admin/users/:id               — delete user (cannot delete self)
+ *
+ * Application settings
+ *   GET  /admin/settings                  — all key/value pairs (SMTP masked)
+ *   PUT  /admin/settings                  — update allowed keys
+ *   POST /admin/settings/test-smtp        — verify SMTP connectivity
+ *
+ * Media scan (SSE streams)
+ *   POST /admin/scan                      — full scan with live progress events
+ *   POST /admin/scan/cancel               — request cancellation
+ *   POST /admin/batch-thumbs              — generate all missing thumbnails (SSE)
+ *   POST /admin/batch-thumbs/cancel       — cancel batch-thumb job
+ *
+ * Media browser
+ *   GET    /admin/media                   — browse / search all media
+ *   DELETE /admin/media/:id               — remove DB record (optionally file)
+ *
+ * Duplicate detection
+ *   POST   /admin/duplicates/scan         — hash-based dup scan (SSE)
+ *   POST   /admin/duplicates/delete-bulk  — delete multiple dups by ID (SSE)
+ *   DELETE /admin/duplicates/:id          — delete single dup (DB + disk)
+ *
+ * Media cleanup
+ *   POST /admin/clean-media               — find orphaned DB rows / unindexed files (SSE)
+ *
+ * Short-video purge
+ *   POST /admin/purge-short-videos        — delete videos below a duration threshold (SSE)
+ *
+ * Server-Sent Events (SSE) convention
+ * ────────────────────────────────────
+ *   Every SSE endpoint streams JSON objects as `data: {...}\n\n`.
+ *   The final message always has `status: ‘done’` or `status: ‘error’`.
+ *   The client closes the EventSource when it receives a terminal event.
+ */
 const express  = require('express');
 const router   = express.Router();
 const path     = require('path');

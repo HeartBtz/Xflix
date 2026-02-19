@@ -1,60 +1,151 @@
 # XFlix
 
-Plateforme de **streaming média locale** avec interface Netflix-like.  
-Backend **Node.js / Express**, base de données **MariaDB**, frontend **HTML/CSS/JS vanilla** — 0 dépendance frontend.
+**Self-hosted Netflix-like media browser** for local video and photo collections.
+
+Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 
 ---
 
-## Fonctionnalités
+## Table of contents
 
-### Lecture & navigation
-- Parcourir les **performers** et leurs médias (vidéos + photos)
-- **Streaming vidéo** avec range-request (seek instantané, pause/reprise)
-- **Galerie photos** avec visionneuse plein écran et navigation clavier
-- Page **Découverte** (vidéos/photos aléatoires)
-- **Recherche** globale + filtres avancés (taille, durée, type, favori…)
-
-### Comptes & social
-- **Inscription / Connexion** avec JWT (expiration configurable)
-- **Rôles** : `admin` / `member`
-- **Commentaires** et **réactions** (like / dislike) par média
-- **Favoris** personnels et globaux
-- Réinitialisation de mot de passe par email (SMTP ou lien direct en dev)
-
-### Panneau Admin
-- Gestion des **utilisateurs** (rôle, suppression)
-- **Scan des médias** avec progression SSE en temps réel
-- Enrichissement automatique des **durées vidéo** (ffprobe) post-scan  
-- Génération automatique des **thumbnails** manquants post-scan
-- **Navigateur de médias** : filtrer / supprimer par performer, type, nom
-- **Détection de doublons** (hash partiel 64 KB) avec suppression en masse
-- **Nettoyage médias** : entrées DB orphelines · fichiers non indexés · miniatures orphelines
-- **Purge des courtes vidéos** : supprimer toutes les vidéos sous un seuil en minutes
-- **Paramètres SMTP** et ouverture/fermeture des inscriptions
-
-### Performances
-- DB indexée : `last_viewed`, `(performer_id, type)`, `(type, favorite)`, `(type, view_count)`
-- `random_cover_id` stocké par performer — élimine les `ORDER BY RAND()` par ligne à l'affichage
-- Walker de fichiers async (générateur) — pas de blocage même sur 60 000+ fichiers
-- Insertions en **batch de 500** (`INSERT IGNORE … VALUES …`)
-- Compression gzip sélective (JSON/HTML/CSS/JS — exclut vidéo/image/SSE)
-- Retry automatique des requêtes API côté client (réseau instable)
-- Handlers globaux `uncaughtException` / `unhandledRejection` — process jamais crashé
+1. [Features](#features)
+2. [Architecture overview](#architecture-overview)
+3. [Requirements](#requirements)
+4. [Quick install](#quick-install)
+5. [Manual install](#manual-install)
+6. [Configuration reference](#configuration-reference)
+7. [Directory layout](#directory-layout)
+8. [How the scanner works](#how-the-scanner-works)
+9. [Thumbnail system](#thumbnail-system)
+10. [API reference](#api-reference)
+11. [Admin panel](#admin-panel)
+12. [Keyboard shortcuts](#keyboard-shortcuts)
+13. [Troubleshooting](#troubleshooting)
+14. [Contributing](#contributing)
+15. [License](#license)
 
 ---
 
-## Prérequis
+## Features
 
-| Composant | Version min. | Notes |
+### Browsing & playback
+- Browse **performers** (one subdirectory = one performer) and their media
+- **Video streaming** with HTTP Range requests — instant seek, pause/resume
+- **Photo lightbox** with full-screen view and keyboard navigation
+- **Discover** page with random videos + photos
+- Global **search** with advanced filters (size, duration, type, favourite…)
+
+### Accounts & social
+- **Register / Login** via JWT (7-day expiry by default, configurable)
+- Roles: `admin` / `member` — first registered user is automatically admin
+- Per-media **comments** and **reactions** (like / dislike)
+- **Personal favourites** (per-user) and **global favourites** (admin-set)
+- Password reset by email (SMTP) or direct reset link returned in dev mode
+
+### Admin panel
+- **Scan** with live SSE progress stream
+- Auto-enrich **video durations** (ffprobe) + auto-generate **thumbnails** post-scan
+- **Duplicate detection** using partial MD5 hash (first 64 KB) + bulk delete
+- **Clean media**: find orphaned DB rows, unindexed files, orphaned thumbnails
+- **Purge short videos**: delete all videos under a configurable duration threshold
+- **Media browser**: filter and delete by performer / type / filename
+- **Batch thumbnail** generation with live progress
+- **User management**: change role, delete account
+- **SMTP settings** editable at runtime (no restart needed)
+
+### Performance
+| Technique | Effect |
+|---|---|
+| DB indexes on `last_viewed`, `(performer_id, type)`, `(type, favorite)`, `(type, view_count)` | Fast sort / filter queries |
+| `random_cover_id` stored per performer | No `ORDER BY RAND()` on every page load |
+| Async walker (async generator) | 60 000+ files scanned without blocking the event loop |
+| Batch insert (500 rows / query) | 10× faster than individual INSERTs |
+| Selective gzip (JSON/HTML/CSS/JS only) | No double-compressing video or images |
+| Thumb semaphore (max 3 concurrent) | Prevents ffmpeg flood when a performer loads |
+| API retry with backoff on the client | Transparent recovery from brief server hiccups |
+
+---
+
+## Architecture overview
+
+```
+Browser (Vanilla JS SPA)
+    │  REST + SSE  │  Range streaming
+    ▼              ▼
+┌────────────────────────────────────────────┐
+│              Express (server.js)           │
+│  /auth   /social   /admin   /api           │
+│  /stream   /photo   /thumb   /download     │
+└──────────┬─────────────────────────────────┘
+           │ mysql2/promise pool (20 connections)
+           ▼
+      MariaDB (xflix DB)
+      ┌──────────────┐
+      │ performers   │ ◄── one row per MEDIA_DIR subdirectory
+      │ media        │ ◄── one row per video/photo file
+      │ users        │
+      │ comments     │
+      │ media_reactions
+      │ user_favorites
+      │ settings     │ ◄── SMTP + app config (key/value)
+      └──────────────┘
+
+Background jobs (fire-and-forget after scan)
+  enrichDurations()      ← ffprobe, concurrency 3
+  generateMissingThumbs() ← ffmpeg/sharp, concurrency 3
+```
+
+**File map:**
+
+```
+xflix/
+├── server.js           Entry point, boots Express, registers routers
+├── db.js               mysql2 pool + all schema migrations + DB helpers
+├── scanner.js          File walker, batch insert, thumb generation
+├── cli.js              CLI wrapper: node cli.js scan / clear
+│
+├── routes/
+│   ├── api.js          Public REST API (performers, media, search, stats…)
+│   ├── auth.js         Register, login, JWT, password reset
+│   ├── social.js       Comments, reactions, per-user favourites
+│   ├── admin.js        Admin panel: scan, users, settings, duplicates, clean
+│   └── stream.js       Video range streaming, photo serving, thumb serving
+│
+├── middleware/
+│   └── auth.js         JWT middleware: optionalAuth, requireAuth, requireAdmin
+│
+├── services/
+│   └── mail.js         Nodemailer transactional email (password reset)
+│
+├── public/             Static frontend (served as-is by Express)
+│   ├── index.html      Single-page application shell
+│   ├── css/style.css
+│   └── js/app.js       Entire SPA logic (~1800 lines, no framework)
+│
+├── data/
+│   └── thumbs/         Generated JPEG thumbnails (git-ignored, .gitkeep inside)
+│
+├── .env.example        All supported environment variables with docs
+├── install.sh          One-shot install + PM2 launcher
+└── package.json
+```
+
+---
+
+## Requirements
+
+| Component | Minimum | Notes |
 |---|---|---|
-| Linux | Ubuntu 20.04+ / Debian 11+ | |
-| Node.js | 18.x | Installé automatiquement via nvm |
-| MariaDB | 10.5+ | Ou MySQL 8.0+ |
-| FFmpeg | toute version récente | Thumbnails vidéo + durées |
+| Linux | Ubuntu 20.04+ / Debian 11+ | Other distros work if you install deps manually |
+| Node.js | 18.x | Installed automatically by `install.sh` via nvm |
+| MariaDB | 10.5+ | MySQL 8.0+ also works |
+| FFmpeg | any recent | Required for video thumbnails and duration extraction.<br>Installed automatically by `install.sh`. |
+| RAM | 512 MB+ | More RAM = larger DB buffer pool |
+| Disk | — | `data/thumbs/` grows ~10 KB per media item |
 
 ---
 
-## Installation rapide
+## Quick install
 
 ```bash
 git clone https://github.com/HeartBtz/Xflix.git
@@ -62,22 +153,26 @@ cd Xflix
 bash install.sh
 ```
 
-Le script `install.sh` :
-1. Installe **nvm** + **Node.js 20** si absent
-2. Installe et démarre **MariaDB** si absent
-3. Crée la base `xflix` et l'utilisateur MariaDB
-4. Installe les **dépendances npm**
-5. Génère un fichier `.env` par défaut si inexistant
-6. Crée le compte `admin@xflix.local` / `xflix2026`
-7. Démarre le serveur via **PM2** et configure le démarrage au boot
+`install.sh` does everything in one shot:
 
-Puis ouvrez **http://localhost:3000** et lancez un scan depuis ⚙️ Admin.
+1. Installs **nvm** + **Node.js 20** if absent
+2. Installs and starts **MariaDB** if absent
+3. Installs **FFmpeg** if absent
+4. Creates the `xflix` database and MariaDB user
+5. Runs `npm install`
+6. Copies `.env.example` → `.env` with sensible defaults (if `.env` is missing)
+7. Creates the default `admin@xflix.local / xflix2026` account (if no users exist)
+8. Starts the server via **PM2** and registers it for boot autostart
+
+After install, open **http://localhost:3000** and launch a scan from ⚙️ Admin.
+
+> **Tip:** To update an existing install, `git pull` and re-run `bash install.sh`.
 
 ---
 
-## Installation manuelle
+## Manual install
 
-### 1. Dépendances système
+### 1. System dependencies
 
 ```bash
 sudo apt update
@@ -85,7 +180,7 @@ sudo apt install -y mariadb-server ffmpeg build-essential
 sudo systemctl enable --now mariadb
 ```
 
-### 2. Base de données MariaDB
+### 2. MariaDB database
 
 ```bash
 sudo mariadb -u root << 'SQL'
@@ -96,258 +191,368 @@ FLUSH PRIVILEGES;
 SQL
 ```
 
+> Change `xflix2026` to a strong password and update `DB_PASS` in your `.env`.
+
 ### 3. Node.js via nvm
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 source ~/.bashrc
-nvm install 20 && nvm use 20 && nvm alias default 20
+nvm install 20
+nvm alias default 20
 ```
 
-### 4. Dépendances npm
+### 4. Clone and configure
 
 ```bash
+git clone https://github.com/HeartBtz/Xflix.git
+cd Xflix
 npm install
-```
-
-### 5. Configuration `.env`
-
-```bash
 cp .env.example .env
-nano .env          # Renseigner au minimum MEDIA_DIR et JWT_SECRET
+# Edit .env and set MEDIA_DIR, DB_PASS, JWT_SECRET at minimum
+nano .env
 ```
 
-### 6. Démarrage
+### 5. Run
 
 ```bash
-# Développement
+# Development (logs to stdout)
 node server.js
 
-# Production (PM2)
+# Production (via PM2, restarts on crash, survives reboots)
 npm install -g pm2
 pm2 start server.js --name xflix
-pm2 save && pm2 startup
+pm2 save
+pm2 startup   # follow the printed instructions to register with systemd
+```
+
+### 6. Scan your media
+
+```bash
+# From the CLI (server does not need to be running)
+node cli.js scan
+
+# Or from the browser: Admin → ▶ Lancer un scan
 ```
 
 ---
 
-## Structure des médias
+## Configuration reference
 
-XFlix attend la structure suivante dans `MEDIA_DIR` :
+Copy `.env.example` to `.env` and adjust the values. All fields are optional
+except those marked **required**.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | HTTP port the server listens on |
+| `MEDIA_DIR` | `/home/coder/OF` | **Required.** Absolute path to your media root.<br>Each immediate subdirectory becomes a performer. |
+| `THUMB_DIR` | `<repo>/data/thumbs` | Where thumbnails are stored. |
+| `DB_HOST` | `localhost` | MariaDB host |
+| `DB_PORT` | `3306` | MariaDB port |
+| `DB_USER` | `xflix` | MariaDB user |
+| `DB_PASS` | `xflix2026` | **Change in production.** MariaDB password |
+| `DB_NAME` | `xflix` | Database name |
+| `JWT_SECRET` | *(weak default)* | **Change in production.** Long random string.<br>Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `JWT_EXPIRES` | `7d` | Token validity (e.g. `1h`, `30d`) |
+| `BASE_URL` | `http://localhost:3000` | Used in password-reset emails |
+| `SMTP_HOST` | — | SMTP server hostname (optional) |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USER` | — | SMTP username |
+| `SMTP_PASS` | — | SMTP password |
+| `SMTP_FROM` | — | Sender address shown in emails |
+| `SMTP_SECURE` | `false` | `true` for SSL (port 465) |
+
+SMTP can also be configured at runtime from **Admin → Settings** without
+restarting the server — values are stored in the `settings` DB table.
+
+---
+
+## Directory layout
+
+XFlix expects your media in a flat two-level structure:
 
 ```
 MEDIA_DIR/
-├── NomPerformer1/
-│   ├── dossier-quelconque/
-│   │   ├── video.mp4
-│   │   └── photo.jpg
-│   └── autre-sous-dossier/
-│       └── ...
-├── NomPerformer2/
-│   └── ...
-└── ...
+├── PerformerName/
+│   ├── video1.mp4
+│   ├── photo1.jpg
+│   └── nested/
+│       ├── video2.mkv
+│       └── photo2.png
+└── AnotherPerformer/
+    └── …
 ```
 
-Chaque **sous-dossier direct** de `MEDIA_DIR` devient un performer.  
-Les fichiers sont indexés **récursivement**.
+- Each **immediate subdirectory** of `MEDIA_DIR` becomes one `performers` row.
+- Media can be **nested at any depth** inside the performer directory.
+- Supported video formats: `.mp4 .mkv .avi .mov .webm .wmv .flv .m4v .ts .3gp`
+- Supported photo formats: `.jpg .jpeg .png .gif .webp .bmp .heic .heif .avif`
 
-**Formats supportés :**
+---
 
-| Type | Extensions |
+## How the scanner works
+
+```
+Admin → Scan
+   │
+   ├─ 1. Read all performer subdirectories from MEDIA_DIR
+   ├─ 2. Load ALL existing file paths into memory (one query for all performers)
+   ├─ 3. For each performer:
+   │      a. Upsert the performers row
+   │      b. Async-walk the directory tree (async generator, non-blocking)
+   │      c. Skip already-indexed files (in-memory set lookup — O(1))
+   │      d. stat() new files, accumulate into 500-row batches
+   │      e. INSERT IGNORE batch into media table
+   │      f. Send SSE progress event after each batch
+   ├─ 4. UPDATE performer counts (video_count, photo_count, total_size)
+   ├─ 5. Refresh random_cover_id for each performer
+   │
+   └─ Background (fire-and-forget, non-blocking for the client):
+          enrichDurations(3)       → ffprobe each video that has no duration
+          generateMissingThumbs()  → ffmpeg/sharp for recent media without a thumb
+```
+
+Scan is **incremental**: already-indexed files are skipped without touching the
+DB. Running the scan again after adding new files is safe and fast.
+
+---
+
+## Thumbnail system
+
+Thumbnails are stored in `data/thumbs/` with predictable names:
+- Videos → `v_<media_id>.jpg`
+- Photos → `p_<media_id>.jpg`
+
+**On-demand generation** (`GET /thumb/:id`):
+
+1. If `thumb_path` is already set in DB and the file exists → serve immediately (7-day cache).
+2. Otherwise, attempt to generate: sharp (photos) or ffmpeg at 10% mark (videos).
+3. A **semaphore** limits concurrent generation to 3 (configurable in `routes/stream.js`).
+4. If the queue is full, the server responds `503 Retry-After: 4` instead of queuing
+   indefinitely — this keeps browser connections free for API calls.
+5. The frontend retries up to 4 times with exponential back-off (2s, 4s, 6s, 8s)
+   before falling back to a lazy `<video>` element using the stream endpoint.
+
+**Batch generation** runs automatically after every scan (last 300 media, concurrency 3).
+It can also be triggered manually from **Admin → Générer les miniatures**.
+
+---
+
+## API reference
+
+All endpoints return JSON. Error responses always include `{ "error": "..." }`.
+
+### Performers
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/performers` | — | List performers. Query: `q`, `sort`, `order`, `favorite`, `minVideos`, `minPhotos`, `limit`, `offset` |
+| GET | `/api/performers/:name` | — | Single performer by name |
+| POST | `/api/performers/:id/favorite` | — | Toggle global favourite |
+
+### Media
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/performers/:name/videos` | — | Paginated videos. Query: `sort`, `order`, `page`, `limit`, `minSize`, `maxSize`, `minDuration`, `maxDuration`, `favorite` |
+| GET | `/api/performers/:name/photos` | — | Paginated photos. Query: `sort`, `order`, `page`, `limit`, `favorite` |
+| GET | `/api/media/:id` | — | Single media record + performer name |
+| POST | `/api/media/:id/favorite` | — | Toggle global favourite |
+| POST | `/api/media/:id/view` | — | Increment view counter |
+
+### Discovery
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/search` | — | Search across filename and performer name |
+| GET | `/api/random/videos` | — | Random video sample (`limit` max 100) |
+| GET | `/api/random/photos` | — | Random photo sample |
+| GET | `/api/random/performer` | — | Random performer |
+| GET | `/api/recent` | — | Recently viewed (`limit`, `type`) |
+| GET | `/api/popular` | — | Most viewed (`limit`, `type`) |
+| GET | `/api/favorites` | — | Globally favourited media |
+| GET | `/api/stats` | — | Aggregate stats for the dashboard |
+
+### Streaming
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/stream/:id` | Video stream with Range / `206 Partial Content` |
+| GET | `/photo/:id` | Full-size photo |
+| GET | `/thumb/:id` | Thumbnail (generated on first request) |
+| GET | `/download/:id` | Force-download with original filename |
+
+### Authentication
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/auth/register` | — | Create account |
+| POST | `/auth/login` | — | Returns JWT |
+| GET | `/auth/me` | ✓ | Current user profile |
+| PUT | `/auth/profile` | ✓ | Update username / bio |
+| POST | `/auth/change-password` | ✓ | Change password |
+| POST | `/auth/forgot-password` | — | Send reset email |
+| POST | `/auth/reset-password` | — | Consume reset token |
+| GET | `/auth/config` | — | Is registration open? |
+
+### Social
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/social/comments/:mediaId` | — | Paginated comments |
+| POST | `/social/comments/:mediaId` | ✓ | Post a comment |
+| PATCH | `/social/comments/:id` | ✓ | Edit own comment |
+| DELETE | `/social/comments/:id` | ✓ | Delete own comment |
+| GET | `/social/reactions/:mediaId` | — | Like/dislike counts |
+| POST | `/social/reactions/:mediaId` | ✓ | Add / toggle reaction |
+| GET | `/social/favorites` | ✓ | User's personal favourites |
+| POST | `/social/favorites/:mediaId` | ✓ | Toggle personal favourite |
+| GET | `/social/favorites/:mediaId` | ✓ | Check if favourited |
+
+### Admin (all require `role=admin`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/admin/stats` | Dashboard counts |
+| GET/PATCH/DELETE | `/admin/users/*` | User management |
+| GET/PUT | `/admin/settings` | App settings (SMTP…) |
+| POST | `/admin/settings/test-smtp` | Test SMTP |
+| POST | `/admin/scan` | **SSE** — scan with live progress |
+| POST | `/admin/scan/cancel` | Cancel in-progress scan |
+| POST | `/admin/batch-thumbs` | **SSE** — batch thumbnail generation |
+| GET | `/admin/media` | Media browser |
+| DELETE | `/admin/media/:id` | Delete media DB record (+ optional disk) |
+| POST | `/admin/duplicates/scan` | **SSE** — hash-based dup detection |
+| POST | `/admin/duplicates/delete-bulk` | **SSE** — bulk delete |
+| DELETE | `/admin/duplicates/:id` | Delete one duplicate |
+| POST | `/admin/clean-media` | **SSE** — orphan/unindexed scan |
+| POST | `/admin/purge-short-videos` | **SSE** — delete short videos |
+
+> **SSE endpoints** stream `data: {...}\n\n` events. The last event always has
+> `status: "done"` or `status: "error"`.
+
+---
+
+## Admin panel
+
+Access the admin panel by clicking the ⚙️ icon (only visible if logged in as admin).
+
+| Tab | What it does |
 |---|---|
-| Vidéo | `.mp4` `.mkv` `.avi` `.mov` `.webm` `.wmv` `.flv` `.m4v` `.ts` `.3gp` |
-| Photo | `.jpg` `.jpeg` `.png` `.gif` `.webp` `.bmp` `.heic` `.heif` `.avif` |
+| **Scan** | Index new media files. Progress shown live. |
+| **Miniatures** | Generate thumbnails for media that don't have one yet. |
+| **Doublons** | Detect duplicate files using fast partial hashing. |
+| **Nettoyage** | Find orphaned DB records, unindexed disk files, stale thumbs. |
+| **Purge** | Delete videos shorter than a configurable duration. |
+| **Médias** | Browse, search and delete individual media records. |
+| **Utilisateurs** | Manage user accounts and roles. |
+| **Paramètres** | Configure SMTP, toggle open registration. |
 
 ---
 
-## Premier lancement
+## Keyboard shortcuts
 
-1. Ouvrir **http://localhost:3000**
-2. Se connecter avec `admin@xflix.local` / `xflix2026` (créé par `install.sh`)
-3. Cliquer sur ⚙️ → **Admin**
-4. Lancer un **Scan des médias** (Tout / Photos / Vidéos)
-5. Les thumbnails et durées vidéo se génèrent automatiquement en arrière-plan
-
-> **Première utilisation sans `install.sh`** : créez un compte, puis passez-le admin en DB :  
-> `UPDATE users SET role='admin' WHERE email='votre@email.com';`
+| Key | Action |
+|---|---|
+| `←` / `→` | Previous / next in lightbox or video player |
+| `F` | Toggle favourite on current media |
+| `D` | Download current media |
+| `Escape` | Close lightbox / player |
+| `Space` | Play / pause video |
 
 ---
 
-## CLI
+## Troubleshooting
+
+### Server won't start — "DB error"
 
 ```bash
-# Scanner les médias (sans serveur)
-node cli.js scan
-
-# Vider la base de données
-node cli.js clear
-```
-
----
-
-## Structure du projet
-
-```
-xflix/
-├── server.js              # Point d'entrée Express
-├── db.js                  # Pool MariaDB + schéma + fonctions CRUD
-├── scanner.js             # Scan async, thumbs, durées, auto-thumbs post-scan
-├── cli.js                 # Interface ligne de commande
-├── install.sh             # Script d'installation tout-en-un
-├── .env                   # Configuration locale (ignoré par git)
-├── .env.example           # Modèle de configuration
-├── package.json
-│
-├── middleware/
-│   └── auth.js            # JWT (signToken, verifyToken, requireAuth, requireAdmin)
-│
-├── services/
-│   └── mail.js            # Envoi d'emails (nodemailer, SMTP)
-│
-├── routes/
-│   ├── api.js             # /api — performers, médias, stats, search, favoris…
-│   ├── auth.js            # /auth — register, login, profil, reset password
-│   ├── social.js          # /social — commentaires, réactions, favoris user
-│   ├── admin.js           # /admin — users, settings, scan SSE, outils…
-│   └── stream.js          # Streaming vidéo / photos / thumbnails
-│
-├── public/
-│   ├── index.html
-│   ├── admin.html
-│   ├── css/style.css
-│   ├── css/admin.css
-│   ├── js/app.js
-│   └── js/admin.js
-│
-└── data/
-    └── thumbs/            # Thumbnails générés (ignoré par git)
-```
-
----
-
-## API — Routes principales
-
-### Auth `/auth`
-
-| Méthode | Route | Description |
-|---|---|---|
-| POST | `/auth/register` | Inscription |
-| POST | `/auth/login` | Connexion → JWT |
-| GET | `/auth/me` | Profil (auth) |
-| PUT | `/auth/profile` | Modifier profil |
-| POST | `/auth/change-password` | Changer mot de passe |
-| POST | `/auth/forgot-password` | Demande reset par email |
-| POST | `/auth/reset-password` | Reset avec token |
-| GET | `/auth/config` | Inscription ouverte ? |
-
-### Médias `/api`
-
-| Méthode | Route | Description |
-|---|---|---|
-| GET | `/api/performers` | Liste performers (filtre, tri, pagination) |
-| GET | `/api/performers/:name` | Détail performer |
-| POST | `/api/performers/:id/favorite` | Toggle favori global |
-| GET | `/api/performers/:name/videos` | Vidéos avec filtres + pagination |
-| GET | `/api/performers/:name/photos` | Photos avec filtres + pagination |
-| GET | `/api/media/:id` | Détail média |
-| POST | `/api/media/:id/view` | Incrémenter vues |
-| POST | `/api/media/:id/favorite` | Toggle favori global |
-| GET | `/api/search` | Recherche globale |
-| GET | `/api/random/videos` | Vidéos aléatoires |
-| GET | `/api/random/photos` | Photos aléatoires |
-| GET | `/api/recent` | Derniers médias consultés |
-| GET | `/api/popular` | Médias les plus vus |
-| GET | `/api/favorites` | Médias favoris globaux |
-| GET | `/api/stats` | Statistiques globales |
-
-### Social `/social`
-
-| Méthode | Route | Description |
-|---|---|---|
-| GET | `/social/comments/:mediaId` | Liste des commentaires |
-| POST | `/social/comments/:mediaId` | Poster un commentaire |
-| PATCH | `/social/comments/:id` | Modifier un commentaire |
-| DELETE | `/social/comments/:id` | Supprimer un commentaire |
-| GET | `/social/reactions/:mediaId` | Voir réactions |
-| POST | `/social/reactions/:mediaId` | Ajouter like/dislike |
-| GET | `/social/favorites` | Favoris de l'utilisateur |
-| POST | `/social/favorites/:mediaId` | Toggle favori utilisateur |
-
-### Admin `/admin` — rôle admin requis
-
-| Méthode | Route | Description |
-|---|---|---|
-| GET | `/admin/stats` | Stats dashboard |
-| GET | `/admin/users` | Liste utilisateurs |
-| PATCH | `/admin/users/:id/role` | Changer rôle |
-| DELETE | `/admin/users/:id` | Supprimer utilisateur |
-| GET/PUT | `/admin/settings` | Paramètres SMTP / config |
-| POST | `/admin/settings/test-smtp` | Test connexion SMTP |
-| POST | `/admin/scan` | Scan SSE (progression temps réel) |
-| POST | `/admin/scan/cancel` | Annuler scan |
-| POST | `/admin/batch-thumbs` | Générer thumbnails en batch (SSE) |
-| GET | `/admin/media` | Navigateur de médias |
-| DELETE | `/admin/media/:id` | Supprimer un média |
-| POST | `/admin/duplicates/scan` | Détecter doublons (SSE) |
-| POST | `/admin/duplicates/delete-bulk` | Supprimer doublons en masse (SSE) |
-| DELETE | `/admin/duplicates/:id` | Supprimer un doublon |
-| POST | `/admin/clean-media` | Nettoyage 3 phases (SSE) |
-| POST | `/admin/purge-short-videos` | Supprimer vidéos < seuil en minutes (SSE) |
-
-### Streaming `/`
-
-| Route | Description |
-|---|---|
-| `/stream/:id` | Streaming vidéo (range requests, ETag, cache 1h) |
-| `/photo/:id` | Servir une photo (cache 24h, ETag) |
-| `/thumb/:id` | Servir un thumbnail |
-
----
-
-## Dépannage
-
-### Le serveur ne démarre pas
-```bash
-pm2 logs xflix --err --lines 50
+# Check MariaDB is running
 sudo systemctl status mariadb
-mariadb -u xflix -pxflix2026 xflix -e "SHOW TABLES;"
+
+# Test credentials
+mariadb -u xflix -p xflix
+
+# Tail PM2 logs
+pm2 logs xflix --lines 50
 ```
 
-### Le scan ne trouve aucun fichier
-- Vérifier `MEDIA_DIR` dans `.env` — doit être un chemin absolu
-- Les **sous-dossiers directs** de `MEDIA_DIR` deviennent des performers
-- Vérifier les droits de lecture : `ls -la "$MEDIA_DIR"`
+### "Failed to fetch" errors in the browser
 
-### Les thumbnails ne se génèrent pas
+This almost always means the server dropped a connection. Common causes:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Only when loading a performer for the first time | All 6 browser connections consumed by concurrent thumbnail generation | Already fixed (semaphore + retry logic in v1.2). Make sure you're on the latest version. |
+| After running a scan | `enrichDurations` + `generateMissingThumbs` saturating the DB pool | Wait 1–2 minutes for background jobs to finish. |
+| FFmpeg not installed | Video thumbnails all return 404 → `onerror` fallback opened 50 streams | Run `sudo apt install ffmpeg` and restart the server. |
+| Repeated crashes | Unhandled exception in a route | Check `pm2 logs xflix --err` |
+
+### Video thumbnails are all missing / black
+
 ```bash
-ffmpeg -version           # FFmpeg doit être installé
-ls -la data/thumbs/       # Vérifier accès en écriture
-sudo apt install build-essential   # Requis pour Sharp (compilation native)
+# Check ffmpeg is installed
+which ffmpeg && ffmpeg -version
+
+# If absent:
+sudo apt install ffmpeg
+pm2 restart xflix
 ```
 
-### Reset mot de passe sans SMTP
-En mode développement, le lien de reset est retourné **directement dans la réponse JSON** de `POST /auth/forgot-password`.
+### Photos have no thumbnails
 
-### Mettre à jour les compteurs après suppression en DB
+The `sharp` npm package requires native bindings compiled for your platform.
+If `npm install` didn't build it:
+
 ```bash
-node -e "const {pool,updatePerformerCounts}=require('./db'); updatePerformerCounts().then(()=>pool.end())"
+npm rebuild sharp
+pm2 restart xflix
+```
+
+### Scan is very slow
+
+- For 60 000+ files the scan can take 30–60 seconds. This is normal.
+- The async walker is non-blocking — the UI stays responsive during the scan.
+- Check `pm2 logs xflix` for `[SCANNER ERROR]` messages.
+
+### PM2 process keeps restarting
+
+```bash
+pm2 logs xflix --err --lines 100
+# Look for uncaughtException or unhandledRejection messages
 ```
 
 ---
 
-## Sécurité (recommandations production)
+## Contributing
 
-1. **Changer `JWT_SECRET`** :
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-   ```
-2. **Changer le mot de passe MariaDB** — `xflix2026` est public
-3. Placer XFlix derrière un **reverse proxy** (nginx / Caddy) avec HTTPS
-4. **Fermer les inscriptions** depuis Admin → Paramètres une fois les comptes créés
-5. Port 3000 ne doit pas être exposé directement sur Internet
+1. Fork the repo and create a feature branch: `git checkout -b feat/my-feature`
+2. Make your changes. Keep each commit focused and descriptive.
+3. Test manually: start the server, run a scan, open a performer, check the admin panel.
+4. Open a pull request against `main` with a clear description of what changed and why.
+
+### Code conventions
+
+- **Backend**: Node.js 18+, CommonJS modules, async/await throughout.
+  All DB access goes through `db.js` helpers. Route handlers are `async (req, res) => {}` with a top-level `try/catch`.
+- **Frontend**: Vanilla JS, no framework, no build step. One file (`public/js/app.js`).
+  State lives in the `state` object. DOM helpers `$()` and `$q()` are defined at the top.
+- **Comments**: File-level JSDoc header on every `.js` file. Inline comments for non-obvious logic.
+- **SQL**: Always use parameterised queries (`pool.query('… WHERE id = ?', [id])`).
+  Column names in `ORDER BY` are validated against an allowlist before interpolation.
+
+### Environment setup
+
+```bash
+git clone https://github.com/HeartBtz/Xflix.git
+cd Xflix
+npm install
+cp .env.example .env   # fill in DB_PASS, JWT_SECRET, MEDIA_DIR
+node server.js         # or: npm run dev  (auto-restart via nodemon)
+```
 
 ---
 
-## Licence
+## License
 
-Usage privé / personnel.
+MIT — © HeartBtz

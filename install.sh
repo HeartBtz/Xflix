@@ -83,6 +83,19 @@ else
   ok "MariaDB binaire trouvé : $MYSQLD_BIN"
 fi
 
+# ── Installer ffmpeg si absent (nécessaire pour les miniatures vidéo) ──
+if ! command -v ffmpeg &>/dev/null; then
+  info "ffmpeg non trouvé — installation via apt..."
+  if command -v apt-get &>/dev/null; then
+    sudo apt-get install -y --no-install-recommends ffmpeg 2>&1 | grep -v "^debconf"
+    ok "ffmpeg installé."
+  else
+    warn "apt-get introuvable. Installez ffmpeg manuellement pour activer les miniatures vidéo."
+  fi
+else
+  ok "ffmpeg trouvé : $(ffmpeg -version 2>&1 | head -1 | cut -d' ' -f3)"
+fi
+
 # ── Démarrer MariaDB si pas actif ───────────────────────────────────
 if ! ss -tlnp 2>/dev/null | grep -q ':3306'; then
   info "Démarrage de MariaDB..."

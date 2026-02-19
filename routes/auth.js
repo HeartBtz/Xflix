@@ -1,6 +1,29 @@
+/**
+ * routes/auth.js — Authentication & account management
+ *
+ * Mounted under /auth in server.js. Uses JWT (HS256) stored client-side
+ * in localStorage. No server-side sessions — stateless by design.
+ *
+ * Endpoint summary
+ * ────────────────
+ *   POST /auth/register         — create account (first user → admin)
+ *   POST /auth/login            — validate credentials, return JWT
+ *   GET  /auth/me               — return current user profile (requires auth)
+ *   POST /auth/change-password  — change password (requires auth)
+ *   POST /auth/forgot-password  — send reset email (or return link in dev)
+ *   POST /auth/reset-password   — consume reset token, set new password
+ *   GET  /auth/config           — public: is registration open?
+ *   PUT  /auth/profile          — update username / bio (requires auth)
+ *
+ * Security notes
+ * ──────────────
+ *   - Passwords are hashed with bcrypt (cost factor 12).
+ *   - forgot-password always returns 200 to prevent email enumeration.
+ *   - Reset tokens expire after 1 hour.
+ *   - JWT_SECRET must be changed in production (see .env.example).
+ */
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const {
   createUser, getUserByEmail, getUserById, getUserByResetToken,

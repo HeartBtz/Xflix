@@ -1,3 +1,44 @@
+/**
+ * routes/api.js — Public REST API
+ *
+ * All routes are mounted under /api in server.js.
+ * Authentication is NOT required for read routes (the app is designed for
+ * trusted local-network use). Write routes (favorites, view-count) are
+ * also open to allow the SPA to work without a login for anonymous users.
+ *
+ * Endpoint summary
+ * ────────────────
+ * Performers
+ *   GET  /performers              — list with search, sort, filter, pagination
+ *   GET  /performers/:name        — single performer by name
+ *   POST /performers/:id/favorite — toggle favorite flag
+ *
+ * Media
+ *   GET  /performers/:name/videos — paginated videos for a performer
+ *   GET  /performers/:name/photos — paginated photos for a performer
+ *   GET  /media/:id               — single media record (with performer name)
+ *   POST /media/:id/favorite      — toggle favorite flag
+ *   POST /media/:id/view          — increment view counter
+ *
+ * Discovery
+ *   GET  /search              — full-text search across media + performers
+ *   GET  /random/videos       — random video sample
+ *   GET  /random/photos       — random photo sample
+ *   GET  /random/performer    — random performer
+ *   GET  /recent              — recently viewed media
+ *   GET  /popular             — most viewed media
+ *   GET  /favorites           — globally-favorited media
+ *   GET  /stats               — dashboard aggregates
+ *
+ * Scan (admin convenience endpoints, no auth guard here)
+ *   POST /scan                — start/restart scan (returns immediately)
+ *   GET  /scan/progress       — poll scan state
+ *   POST /scan/cancel         — request cancellation
+ *   POST /clear               — truncate all media tables
+ *
+ * Thumbnails
+ *   POST /thumb/:id           — force-regenerate a single thumbnail
+ */
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');

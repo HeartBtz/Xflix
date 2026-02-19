@@ -1,3 +1,19 @@
+/**
+ * cli.js — Command-line interface for XFlix
+ *
+ * Usage:
+ *   node cli.js scan [all|photos|videos]   Scan MEDIA_DIR and index new files
+ *   node cli.js clear                      Truncate all media tables (keeps users)
+ *
+ * The CLI uses the same db.js and scanner.js modules as the server,
+ * so it inherits all environment variables from .env.
+ *
+ * Typical workflow after first install:
+ *   node cli.js scan          # index everything
+ *   node server.js            # start the API server
+ *
+ * Or trigger a scan from the browser: Admin panel → ▶ Lancer un scan.
+ */
 require('dotenv').config();
 const { initSchema, clearAll } = require('./db');
 const { scanDirectory, getProgress, enrichDurations, generateMissingThumbs } = require('./scanner');

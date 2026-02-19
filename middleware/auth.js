@@ -1,3 +1,24 @@
+/**
+ * middleware/auth.js — JWT authentication helpers
+ *
+ * Exports three Express middleware functions and two JWT utilities:
+ *
+ *   optionalAuth  — Decodes the JWT if present. Sets req.user.
+ *                    Never blocks — safe to use on public routes.
+ *
+ *   requireAuth   — Returns 401 if no valid JWT is provided.
+ *                    Sets req.user on success.
+ *
+ *   requireAdmin  — Calls requireAuth, then checks role === ‘admin’.
+ *                    Returns 403 if the user is not an admin.
+ *
+ *   signToken(payload)   — Create a signed JWT.
+ *   verifyToken(token)   — Verify and decode a JWT (throws on failure).
+ *
+ * The JWT_SECRET must be set via the JWT_SECRET environment variable in
+ * production. The default fallback is intentionally weak and should not
+ * be used outside of local development.
+ */
 const jwt = require('jsonwebtoken');
 const { getUserById } = require('../db');
 

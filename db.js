@@ -184,6 +184,25 @@ async function initSchema() {
     await conn.query(`ALTER TABLE media ADD INDEX IF NOT EXISTS idx_performer_type (performer_id, type)`);
     await conn.query(`ALTER TABLE media ADD INDEX IF NOT EXISTS idx_type_favorite (type, favorite)`);
     await conn.query(`ALTER TABLE media ADD INDEX IF NOT EXISTS idx_type_viewcount (type, view_count)`);
+
+    // ── Video metadata columns (v1.3.0) ──────────────────────────────
+    await conn.query(`ALTER TABLE media ADD COLUMN IF NOT EXISTS codec VARCHAR(50)`);
+    await conn.query(`ALTER TABLE media ADD COLUMN IF NOT EXISTS audio_codec VARCHAR(50)`);
+    await conn.query(`ALTER TABLE media ADD COLUMN IF NOT EXISTS bitrate INT`);
+    await conn.query(`ALTER TABLE media ADD COLUMN IF NOT EXISTS fps FLOAT`);
+    await conn.query(`ALTER TABLE media ADD COLUMN IF NOT EXISTS audio_sample_rate INT`);
+    await conn.query(`ALTER TABLE media ADD COLUMN IF NOT EXISTS audio_channels TINYINT`);
+
+    // ── Media tags (many-to-many: media ↔ tags) ──────────────────────
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS media_tags (
+        media_id INT NOT NULL,
+        tag_id   INT NOT NULL,
+        PRIMARY KEY (media_id, tag_id),
+        FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id)   REFERENCES tags(id)  ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
   } finally {
     conn.release();
   }
@@ -191,11 +210,52 @@ async function initSchema() {
 
 async function clearAll() {
   await pool.query('SET FOREIGN_KEY_CHECKS = 0');
+  await pool.query('TRUNCATE TABLE media_tags');
   await pool.query('TRUNCATE TABLE performer_tags');
   await pool.query('TRUNCATE TABLE tags');
   await pool.query('TRUNCATE TABLE media');
   await pool.query('TRUNCATE TABLE performers');
   await pool.query('SET FOREIGN_KEY_CHECKS = 1');
+}
+
+/* ── Tag helpers ───────────────────────────────────────────────── */
+
+/**
+ * Get or create a tag by name, returning its id.
+ */
+async function getOrCreateTag(name) {
+  await pool.query('INSERT IGNORE INTO tags (name) VALUES (?)', [name]);
+  const [[row]] = await pool.query('SELECT id FROM tags WHERE name = ?', [name]);
+  return row.id;
+}
+
+/**
+ * Replace the full tag set for a media item.
+ * Deletes existing rows then bulk-inserts the new tag ids.
+ */
+async function setMediaTags(mediaId, tagIds) {
+  if (!tagIds.length) return;
+  await pool.query('DELETE FROM media_tags WHERE media_id = ?', [mediaId]);
+  const values = tagIds.map(id => [mediaId, id]);
+  await pool.query('INSERT IGNORE INTO media_tags (media_id, tag_id) VALUES ?', [values]);
+}
+
+/**
+ * Batch-load tags for a list of media ids.
+ * Returns Map<mediaId, string[]>.
+ */
+async function getTagsForMediaBatch(mediaIds) {
+  if (!mediaIds.length) return new Map();
+  const [rows] = await pool.query(
+    'SELECT mt.media_id, t.name FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.media_id IN (?)',
+    [mediaIds]
+  );
+  const map = new Map();
+  for (const { media_id, name } of rows) {
+    if (!map.has(media_id)) map.set(media_id, []);
+    map.get(media_id).push(name);
+  }
+  return map;
 }
 
 async function upsertPerformer(name, dirPath) {
@@ -411,6 +471,7 @@ module.exports = {
   upsertPerformer, getExistingFilePaths, getAllExistingFilePaths, insertMedia, batchInsertMedia,
   updatePerformerCounts, updateThumb, togglePerformerFavorite, toggleMediaFavorite,
   incrementViewCount,
+  getOrCreateTag, setMediaTags, getTagsForMediaBatch,
   getSetting, setSetting, getSettings, getAllSettings,
   createUser, getUserByEmail, getUserById, getUserByResetToken,
   setResetToken, clearResetToken, updateLastLogin, updateUserProfile,

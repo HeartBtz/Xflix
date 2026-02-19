@@ -36,7 +36,8 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { upsertPerformer, batchInsertMedia, updatePerformerCounts, getAllExistingFilePaths, pool } = require('./db');
+const { upsertPerformer, batchInsertMedia, updatePerformerCounts, getAllExistingFilePaths, pool,
+        getOrCreateTag, setMediaTags } = require('./db');
 require('dotenv').config();
 
 const MEDIA_DIR = process.env.MEDIA_DIR || '/home/coder/OF';
@@ -91,11 +92,77 @@ function cancelScan() {
 // In-progress dedup guard
 const thumbGenerating = new Map();
 
-function getVideoDuration(filePath) {
+/**
+ * Parse an ffprobe avg_frame_rate fraction string (e.g. "30000/1001") to a
+ * rounded float. Returns null when the input is invalid.
+ */
+function parseFraction(str) {
+  if (!str) return null;
+  const parts = str.split('/').map(Number);
+  if (parts.length !== 2 || !parts[1]) return parts[0] || null;
+  return Math.round((parts[0] / parts[1]) * 100) / 100;
+}
+
+/**
+ * Run ffprobe on a video file and return structured metadata.
+ * All fields may be null when the stream does not carry that information.
+ */
+function getVideoMeta(filePath) {
   return new Promise((resolve) => {
     if (!ffmpeg) return resolve(null);
-    ffmpeg.ffprobe(filePath, (err, meta) => resolve(err || !meta ? null : (meta.format?.duration || null)));
+    ffmpeg.ffprobe(filePath, (err, meta) => {
+      if (err || !meta) return resolve(null);
+      const video = meta.streams?.find(s => s.codec_type === 'video');
+      const audio = meta.streams?.find(s => s.codec_type === 'audio');
+      resolve({
+        duration:        meta.format?.duration        ? Number(meta.format.duration)           : null,
+        codec:           video?.codec_name            || null,
+        width:           video?.width                 || null,
+        height:          video?.height                || null,
+        bitrate:         meta.format?.bit_rate        ? Math.round(Number(meta.format.bit_rate) / 1000) : null,
+        fps:             parseFraction(video?.avg_frame_rate),
+        audioCodec:      audio?.codec_name            || null,
+        audioSampleRate: audio?.sample_rate           ? Number(audio.sample_rate) : null,
+        audioChannels:   audio?.channels              || null,
+      });
+    });
   });
+}
+
+// Backward-compatible thin wrapper
+function getVideoDuration(filePath) {
+  return getVideoMeta(filePath).then(m => m?.duration ?? null);
+}
+
+/**
+ * Create or look up resolution/codec/duration auto-tags for a video
+ * and write them to media_tags.
+ */
+async function autoTagMedia(mediaId, meta) {
+  const tags = [];
+
+  // Resolution
+  if      (meta.height >= 2160) tags.push('4K');
+  else if (meta.height >= 1080) tags.push('1080p');
+  else if (meta.height >= 720)  tags.push('720p');
+  else if (meta.height)         tags.push('SD');
+
+  // Codec — only noteworthy non-H.264 variants
+  const codec = (meta.codec || '').toLowerCase();
+  if      (codec === 'hevc' || codec === 'h265') tags.push('H.265');
+  else if (codec === 'vp9')                      tags.push('VP9');
+  else if (codec === 'av1')                      tags.push('AV1');
+
+  // Duration bracket
+  if (meta.duration) {
+    if      (meta.duration < 300)  tags.push('Court');
+    else if (meta.duration < 1800) tags.push('Moyen');
+    else                           tags.push('Long');
+  }
+
+  if (!tags.length) return;
+  const tagIds = await Promise.all(tags.map(name => getOrCreateTag(name)));
+  await setMediaTags(mediaId, tagIds);
 }
 
 async function generateVideoThumb(filePath, mediaId) {
@@ -269,25 +336,46 @@ async function scanDirectory(mode = 'all', onProgress = null) {
 }
 
 /**
- * POST-SCAN: Enrich video durations in background with limited concurrency.
- * Run after a scan to fill in duration for videos that don't have it.
+ * POST-SCAN: Extract full video metadata (codec, fps, bitrate, audio, duration)
+ * and write auto-tags for each video that is still missing codec info.
+ * Run after a scan; replaces the old enrichDurations function.
  */
-async function enrichDurations(concurrency = 3) {
+async function enrichVideoMeta(concurrency = 3) {
   if (!ffmpeg) return;
   try {
     const [rows] = await pool.query(
-      "SELECT id, file_path FROM media WHERE type='video' AND duration IS NULL LIMIT 2000"
+      "SELECT id, file_path FROM media WHERE type='video' AND (codec IS NULL OR duration IS NULL) LIMIT 2000"
     );
     if (!rows.length) return;
     const tasks = rows.map(row => async () => {
       try {
-        const duration = await getVideoDuration(row.file_path);
-        if (duration) await pool.query('UPDATE media SET duration = ? WHERE id = ?', [duration, row.id]);
-      } catch(e) { /* skip */ }
+        const meta = await getVideoMeta(row.file_path);
+        if (!meta) return;
+        // COALESCE keeps existing non-null values intact (idempotent on re-runs)
+        await pool.query(
+          `UPDATE media SET
+             duration          = COALESCE(duration,          ?),
+             codec             = COALESCE(codec,             ?),
+             audio_codec       = COALESCE(audio_codec,       ?),
+             bitrate           = COALESCE(bitrate,           ?),
+             fps               = COALESCE(fps,               ?),
+             audio_sample_rate = COALESCE(audio_sample_rate, ?),
+             audio_channels    = COALESCE(audio_channels,    ?),
+             width             = COALESCE(width,             ?),
+             height            = COALESCE(height,            ?)
+           WHERE id = ?`,
+          [meta.duration, meta.codec, meta.audioCodec, meta.bitrate, meta.fps,
+           meta.audioSampleRate, meta.audioChannels, meta.width, meta.height, row.id]
+        );
+        if (meta.height) await autoTagMedia(row.id, meta).catch(() => {});
+      } catch(e) { /* skip bad files */ }
     });
     await runConcurrent(tasks, concurrency);
-  } catch(e) { console.error('[enrichDurations]', e.message); }
+  } catch(e) { console.error('[enrichVideoMeta]', e.message); }
 }
+
+// Backward-compatible alias (used in routes/api.js and routes/admin.js)
+const enrichDurations = enrichVideoMeta;
 
 /**
  * Génère les miniatures manquantes en arrière-plan après un scan.
@@ -319,5 +407,5 @@ module.exports = {
   MEDIA_DIR, THUMB_DIR, VIDEO_EXTS, PHOTO_EXTS, MIME_MAP,
   // Functions
   scanDirectory, getProgress, cancelScan,
-  generateVideoThumb, generatePhotoThumb, enrichDurations, generateMissingThumbs,
+  generateVideoThumb, generatePhotoThumb, enrichVideoMeta, enrichDurations, generateMissingThumbs,
 };

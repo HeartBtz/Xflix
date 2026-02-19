@@ -17,8 +17,7 @@
   <div class="nav-links">
     <button class="nav-link active" data-page="home" id="navHome">Accueil</button>
     <button class="nav-link" data-page="favorites" id="navFavorites">❤️ Favoris</button>
-    <button class="nav-link" data-page="discover" id="navDiscover">🎲 Découvrir</button>
-  </div>
+    <button class="nav-link" data-page="discover" id="navDiscover">🎲 Découvrir</button>    <button class="nav-link" data-page="new" id="navNew">🔖 Nouveautés</button>  </div>
   <div class="nav-search">
     <div class="search-wrapper">
       <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -27,6 +26,7 @@
     </div>
   </div>
   <div class="nav-actions">
+    <button class="btn btn-ghost" id="btnTheme" title="Basculer thème clair/sombre">🌙</button>
     <button class="btn btn-ghost hidden" id="btnManage" title="Gérer la base de données">⚙️</button>
     <button class="btn btn-ghost" id="btnStats" title="Statistiques">📊</button>
     <!-- Auth area -->
@@ -148,6 +148,26 @@
       <h3 class="subsection-title">🖼️ Photos aléatoires</h3>
       <div class="media-grid photos-grid" id="randomPhotosGrid"></div>
     </div>
+
+    <div class="discover-section">
+      <h3 class="subsection-title">🔖 Récemment ajoutés</h3>
+      <div class="media-grid videos-grid" id="newMediaGrid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════ NOUVEAUTÉS PAGE ══════════════════╗ -->
+<div id="newPage" class="page">
+  <div class="section" style="padding-top:calc(var(--nav-h) + 24px)">
+    <div class="section-header">
+      <h2>🔖 Nouveautés</h2>
+    </div>
+    <div class="tabs-bar tabs-inline">
+      <button class="tab active" data-ntab="new-videos" id="newTabVideos">🎬 Vidéos</button>
+      <button class="tab" data-ntab="new-photos" id="newTabPhotos">🖼️ Photos</button>
+    </div>
+    <div class="media-grid videos-grid" id="newPageGrid"></div>
+    <div class="pagination" id="newPagePagination"></div>
   </div>
 </div>
 
@@ -236,6 +256,12 @@
         <input type="checkbox" id="filterFavVideos" />
         <span>❤️ Favoris seuls</span>
       </label>
+      <div class="filter-group">
+        <label>Tag</label>
+        <select id="filterVideoTag" class="select-styled">
+          <option value="">Tous</option>
+        </select>
+      </div>
     </div>
   </div>
 
@@ -261,6 +287,7 @@
   <div id="videoTab" class="media-section">
     <div class="media-grid videos-grid" id="videosGrid"></div>
     <div class="pagination" id="videoPagination"></div>
+    <div class="scroll-sentinel hidden" id="videoScrollSentinel"></div>
   </div>
 
   <!-- Photo grid -->
@@ -354,6 +381,11 @@
         <div class="comments-list" id="commentsList"></div>
         <button class="btn btn-sm load-more-comments hidden" id="loadMoreComments">Charger plus</button>
       </div>
+    </div>
+    <!-- Related videos section -->
+    <div class="vp-related hidden" id="vpRelated">
+      <div class="vp-related-header">▶ Dans cette collection</div>
+      <div class="vp-related-grid" id="vpRelatedGrid"></div>
     </div>
   </div>
 </div>

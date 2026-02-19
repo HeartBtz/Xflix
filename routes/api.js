@@ -43,10 +43,23 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
-const { pool, clearAll, togglePerformerFavorite, toggleMediaFavorite, incrementViewCount, updateThumb } = require('../db');
-const { scanDirectory, getProgress, cancelScan, generateVideoThumb, generatePhotoThumb, enrichDurations } = require('../scanner');
+const { pool, clearAll, togglePerformerFavorite, toggleMediaFavorite, incrementViewCount, updateThumb,
+        getTagsForMediaBatch, getOrCreateTag, setMediaTags } = require('../db');
+const { scanDirectory, getProgress, cancelScan, generateVideoThumb, generatePhotoThumb, enrichDurations,
+        THUMB_DIR } = require('../scanner');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || '/home/coder/OF';
+
+/**
+ * Enrich an array of media rows with their tags.
+ * Adds a `tags: string[]` field to each item in-place (returns new array).
+ */
+async function withTags(items) {
+  if (!items.length) return items;
+  const ids = items.map(v => v.id);
+  const tagMap = await getTagsForMediaBatch(ids);
+  return items.map(v => ({ ...v, tags: tagMap.get(v.id) || [] }));
+}
 
 /* ─── Performers ─────────────────────────────────────────────── */
 
@@ -91,7 +104,13 @@ router.get('/performers/:name', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM performers WHERE name = ?', [req.params.name]);
     if (!rows.length) return res.status(404).json({ error: 'Performer not found' });
-    res.json(rows[0]);
+    const p = rows[0];
+    // Attach aggregate stats (total views + total video duration)
+    const [[stats]] = await pool.query(
+      'SELECT COALESCE(SUM(view_count),0) AS totalViews, COALESCE(SUM(IF(type="video",duration,0)),0) AS totalDuration FROM media WHERE performer_id = ?',
+      [p.id]
+    );
+    res.json({ ...p, totalViews: Number(stats.totalViews), totalDuration: Number(stats.totalDuration) });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -113,7 +132,7 @@ router.get('/performers/:name/videos', async (req, res) => {
     if (!pRows.length) return res.status(404).json({ error: 'Performer not found' });
     const pId = pRows[0].id;
 
-    const { sort = 'filename', order = 'asc', minSize, maxSize, minDuration, maxDuration, favorite, page = 1, limit = 50 } = req.query;
+    const { sort = 'filename', order = 'asc', minSize, maxSize, minDuration, maxDuration, favorite, tag, page = 1, limit = 50 } = req.query;
     const allowed = ['filename', 'size', 'duration', 'created_at', 'view_count', 'favorite'];
     const sortCol = allowed.includes(sort) ? sort : 'filename';
     const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
@@ -122,16 +141,18 @@ router.get('/performers/:name/videos', async (req, res) => {
     let query = `SELECT * FROM media WHERE performer_id = ? AND type = 'video'`;
     const params = [pId];
 
-    if (minSize) { query += ` AND size >= ?`; params.push(Number(minSize)); }
-    if (maxSize) { query += ` AND size <= ?`; params.push(Number(maxSize)); }
-    if (minDuration) { query += ` AND duration >= ?`; params.push(Number(minDuration)); }
-    if (maxDuration) { query += ` AND duration <= ?`; params.push(Number(maxDuration)); }
+    if (minSize)    { query += ` AND size >= ?`;     params.push(Number(minSize)); }
+    if (maxSize)    { query += ` AND size <= ?`;     params.push(Number(maxSize)); }
+    if (minDuration){ query += ` AND duration >= ?`; params.push(Number(minDuration)); }
+    if (maxDuration){ query += ` AND duration <= ?`; params.push(Number(maxDuration)); }
     if (favorite === '1') { query += ` AND favorite = 1`; }
+    if (tag)        { query += ` AND id IN (SELECT mt.media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE t.name = ?)`; params.push(tag); }
 
     const [countRows] = await pool.query(query.replace('SELECT *', 'SELECT COUNT(*) as cnt'), params);
     const total = countRows[0].cnt;
 
-    const [videos] = await pool.query(`${query} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`, [...params, Number(limit), offset]);
+    const [rawVideos] = await pool.query(`${query} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`, [...params, Number(limit), offset]);
+    const videos = await withTags(rawVideos);
     res.json({ data: videos, total, page: Number(page), limit: Number(limit) });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -169,7 +190,27 @@ router.get('/media/:id', async (req, res) => {
       [Number(req.params.id)]
     );
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
+    const m = rows[0];
+    const tagMap = await getTagsForMediaBatch([m.id]);
+    m.tags = tagMap.get(m.id) || [];
+    res.json(m);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/media/:id/related — random videos from the same performer
+router.get('/media/:id/related', async (req, res) => {
+  try {
+    const [base] = await pool.query('SELECT performer_id FROM media WHERE id = ?', [Number(req.params.id)]);
+    if (!base.length) return res.status(404).json({ error: 'Not found' });
+    const limit = Math.min(Number(req.query.limit) || 6, 12);
+    const [rows] = await pool.query(
+      `SELECT m.*, p.name AS performer_name FROM media m
+       JOIN performers p ON p.id = m.performer_id
+       WHERE m.performer_id = ? AND m.type = 'video' AND m.id != ?
+       ORDER BY RAND() LIMIT ?`,
+      [base[0].performer_id, Number(req.params.id), limit]
+    );
+    res.json({ data: rows });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -189,7 +230,40 @@ router.post('/media/:id/view', async (req, res) => {
     res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+/* ─── Tags ─────────────────────────────────────────────────── */
 
+// GET /api/tags — list all tags with usage counts
+router.get('/tags', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT t.id, t.name, COUNT(mt.media_id) AS count
+      FROM tags t LEFT JOIN media_tags mt ON mt.tag_id = t.id
+      GROUP BY t.id, t.name
+      HAVING count > 0
+      ORDER BY count DESC, t.name
+    `);
+    res.json({ data: rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ─── Nouveautés ─────────────────────────────────────────── */
+
+// GET /api/new — recently indexed media (newest first by insertion order)
+router.get('/new', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 40, 200);
+    const type = req.query.type;
+    let query = `SELECT m.*, p.name AS performer_name FROM media m
+      JOIN performers p ON p.id = m.performer_id WHERE 1=1`;
+    const params = [];
+    if (type && ['video','photo'].includes(type)) { query += ` AND m.type = ?`; params.push(type); }
+    query += ` ORDER BY m.id DESC LIMIT ?`;
+    params.push(limit);
+    const [rows] = await pool.query(query, params);
+    const data = await withTags(rows);
+    res.json({ data });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 /* ─── Global Search ──────────────────────────────────────────── */
 
 router.get('/search', async (req, res) => {
@@ -405,6 +479,29 @@ router.post('/thumb/:id', async (req, res) => {
 
     await updateThumb(media.id, thumbPath);
     res.json({ thumbPath });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/thumb/:id/upload — accept a base64-encoded image as a custom thumbnail
+router.post('/thumb/:id/upload', async (req, res) => {
+  try {
+    const b64 = req.body?.data;
+    if (!b64) return res.status(400).json({ error: '{ data: "<base64>" } required in body' });
+    const [rows] = await pool.query('SELECT id FROM media WHERE id = ?', [Number(req.params.id)]);
+    if (!rows.length) return res.status(404).json({ error: 'Media not found' });
+
+    let sharpLib;
+    try { sharpLib = require('sharp'); } catch(e) { return res.status(500).json({ error: 'sharp not available' }); }
+
+    const buffer = Buffer.from(b64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    const thumbName = `c_${rows[0].id}.jpg`;
+    const thumbPath = path.join(THUMB_DIR, thumbName);
+    await sharpLib(buffer)
+      .resize(320, 320, { fit: 'cover', withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toFile(thumbPath);
+    await updateThumb(rows[0].id, thumbPath);
+    res.json({ ok: true, thumbPath });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

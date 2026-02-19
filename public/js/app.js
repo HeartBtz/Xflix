@@ -297,6 +297,7 @@ $qa('.nav-link').forEach(link => {
     if (page === 'home') { showPage('homePage'); loadPerformers(getSortParams()); }
     else if (page === 'favorites') { showPage('favoritesPage'); loadFavoritesPage(); }
     else if (page === 'discover') { showPage('discoverPage'); loadDiscoverPage(); }
+    else if (page === 'new') { showPage('newPage'); loadNewPage(); }
   });
 });
 
@@ -396,11 +397,13 @@ function renderPerformersInGrid(performers, grid) {
 async function loadDiscoverPage() {
   $('randomVideosGrid').innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
   $('randomPhotosGrid').innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
+  if ($('newMediaGrid')) $('newMediaGrid').innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
 
   try {
-    const [vRes, pRes] = await Promise.all([
+    const [vRes, pRes, newRes] = await Promise.all([
       apiFetch(`${API}/random/videos?limit=12`),
       apiFetch(`${API}/random/photos?limit=24`),
+      apiFetch(`${API}/new?type=video&limit=12`),
     ]);
 
     state.discoverVideos = vRes.data;
@@ -413,6 +416,11 @@ async function loadDiscoverPage() {
 
     if (pRes.data.length) renderPhotoCards(pRes.data, $('randomPhotosGrid'));
     else $('randomPhotosGrid').innerHTML = '<div class="empty-state"><span class="empty-icon">🖼️</span><h3>Aucune photo</h3></div>';
+
+    if ($('newMediaGrid')) {
+      if (newRes.data.length) renderVideoCards(newRes.data, $('newMediaGrid'), true);
+      else $('newMediaGrid').innerHTML = '<div class="empty-state"><span class="empty-icon">🆕</span><h3>Aucune nouveauté</h3></div>';
+    }
   } catch(e) {
     $('randomVideosGrid').innerHTML = `<div class="empty-state"><p>Lancez un scan d'abord</p></div>`;
     $('randomPhotosGrid').innerHTML = '';
@@ -440,6 +448,8 @@ async function openPerformer(encodedName) {
       ${p.video_count ? `<span class="stat-chip chip-video">▶ ${p.video_count} vidéo${p.video_count>1?'s':''}</span>` : ''}
       ${p.photo_count ? `<span class="stat-chip chip-photo">🖼 ${p.photo_count} photo${p.photo_count>1?'s':''}</span>` : ''}
       ${p.total_size  ? `<span class="stat-chip chip-size">${formatSize(p.total_size)}</span>` : ''}
+      ${p.totalViews  ? `<span class="performer-stat-chip">👁 ${formatNumber(p.totalViews)} vue${p.totalViews>1?'s':''}</span>` : ''}
+      ${p.totalDuration ? `<span class="performer-stat-chip">⏱ ${formatDuration(p.totalDuration)}</span>` : ''}
     `;
     $('tabVideoCount').textContent = `Vidéos (${p.video_count})`;
     $('tabPhotoCount').textContent = `Photos (${p.photo_count})`;
@@ -483,10 +493,10 @@ $('btnFavPerformer').addEventListener('click', async () => {
 });
 
 /* ── Videos ─────────────────────────────────────────────────────── */
-async function loadVideos(page = 1) {
+async function loadVideos(page = 1, append = false) {
   state.videoPage = page;
   const grid = $('videosGrid');
-  grid.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>Chargement…</p></div>';
+  if (!append) grid.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>Chargement…</p></div>';
 
   const [sort, order = 'asc'] = $('sortVideos').value.split('|');
   const qs = new URLSearchParams({
@@ -496,29 +506,44 @@ async function loadVideos(page = 1) {
     ...($('filterVideoMinDur').value  ? { minDuration: $('filterVideoMinDur').value }  : {}),
     ...($('filterVideoMaxDur').value  ? { maxDuration: $('filterVideoMaxDur').value }  : {}),
     ...($('filterFavVideos').checked  ? { favorite: '1' } : {}),
+    ...($('filterVideoTag') && $('filterVideoTag').value ? { tag: $('filterVideoTag').value } : {}),
   });
 
   try {
     const { data, total } = await apiFetch(
       `${API}/performers/${encodeURIComponent(state.currentPerformer.name)}/videos?${qs}`
     );
-    state.videos = data;
+    if (append) {
+      state.videos = [...state.videos, ...data];
+    } else {
+      state.videos = data;
+    }
     state.videoTotal = total;
-    renderVideoCards(data, grid, false);
-    renderPagination('videoPagination', page, Math.ceil(total / state.videoLimit), p => loadVideos(p));
+
+    if (append && data.length) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = data.map(v => renderSingleVideoCard(v, false)).join('');
+      while (tmp.firstChild) grid.appendChild(tmp.firstChild);
+    } else {
+      renderVideoCards(data, grid, false);
+    }
+
+    const totalPages = Math.ceil(total / state.videoLimit);
+    const sentinel = $('videoScrollSentinel');
+    if (sentinel) sentinel.classList.toggle('hidden', page >= totalPages);
+    renderPagination('videoPagination', page, totalPages, p => loadVideos(p));
   } catch(e) {
-    grid.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur</h3><p>${e.message}</p></div>`;
+    if (!append) grid.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur</h3><p>${e.message}</p></div>`;
   }
 }
 
-function renderVideoCards(videos, grid, showPerformer = false) {
-  if (!videos.length) {
-    grid.innerHTML = `<div class="empty-state"><span class="empty-icon">🎬</span><h3>Aucune vidéo</h3></div>`;
-    return;
-  }
-
-  grid.innerHTML = videos.map((v, idx) => `
-    <div class="video-card" onclick="openVideo(${idx})">
+function renderSingleVideoCard(v, showPerformer = false) {
+  const tagCls = { '4K': 'tag-4k', '1080p': 'tag-hd', '720p': 'tag-hd', 'Long': 'tag-long' };
+  const tagsHtml = v.tags && v.tags.length
+    ? `<div class="video-tags">${v.tags.map(t => `<span class="tag-badge ${tagCls[t] || ''}">${escapeHtml(t)}</span>`).join('')}</div>`
+    : '';
+  return `
+    <div class="video-card" onclick="openVideoById(${v.id})">
       <div class="video-thumb-wrapper">
         <img src="/thumb/${v.id}" alt="${escapeHtml(v.filename)}" loading="lazy"
           onerror="handleThumbError(this,${v.id})"
@@ -535,9 +560,18 @@ function renderVideoCards(videos, grid, showPerformer = false) {
           ${v.duration ? `<span>${formatDuration(v.duration)}</span>` : ''}
           ${v.view_count ? `<span>👁 ${v.view_count}</span>` : ''}
         </div>
+        ${tagsHtml}
       </div>
     </div>
-  `).join('');
+  `;
+}
+
+function renderVideoCards(videos, grid, showPerformer = false) {
+  if (!videos.length) {
+    grid.innerHTML = `<div class="empty-state"><span class="empty-icon">🎬</span><h3>Aucune vidéo</h3></div>`;
+    return;
+  }
+  grid.innerHTML = videos.map(v => renderSingleVideoCard(v, showPerformer)).join('');
 }
 
 $('sortVideos').addEventListener('change', () => {
@@ -545,11 +579,41 @@ $('sortVideos').addEventListener('change', () => {
   loadVideos(1);
 });
 $('filterFavVideos').addEventListener('change', () => loadVideos(1));
+if ($('filterVideoTag')) $('filterVideoTag').addEventListener('change', () => loadVideos(1));
 
 // Auto-apply filters on change
 ['filterVideoMinSize','filterVideoMaxSize','filterVideoMinDur','filterVideoMaxDur'].forEach(id => {
   $(id).addEventListener('change', () => loadVideos(1));
 });
+
+// Populate tag filter dropdown from API
+async function loadVideoTagFilter() {
+  try {
+    const { data } = await apiFetch(`${API}/tags`);
+    const sel = $('filterVideoTag');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Tous</option>';
+    data.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.name;
+      opt.textContent = `${t.name} (${t.count})`;
+      sel.appendChild(opt);
+    });
+  } catch(e) { /* ignore if no tags yet */ }
+}
+
+// Infinite scroll observer on sentinel
+const videoScrollObserver = new IntersectionObserver((entries) => {
+  if (entries[0].isIntersecting && state.currentPage === 'performer') {
+    const totalPages = Math.ceil((state.videoTotal || 0) / state.videoLimit);
+    if (state.videoPage < totalPages) {
+      loadVideos(state.videoPage + 1, true);
+    }
+  }
+}, { rootMargin: '200px' });
+
+const _sentinel = $('videoScrollSentinel');
+if (_sentinel) videoScrollObserver.observe(_sentinel);
 
 /* ── Photos ─────────────────────────────────────────────────────── */
 async function loadPhotos(page = 1) {
@@ -658,7 +722,19 @@ function openVideo(idx) {
   const player = $('videoPlayer');
 
   $('videoTitle').textContent = v.filename;
-  $('videoMeta').textContent = [formatSize(v.size), v.duration ? formatDuration(v.duration) : '', v.performer_name || ''].filter(Boolean).join(' · ');
+
+  // Build tech info meta row
+  const metaParts = [
+    formatSize(v.size),
+    v.duration ? formatDuration(v.duration) : '',
+    v.performer_name || '',
+  ];
+  if (v.codec && v.codec !== 'h264') metaParts.push(v.codec.toUpperCase());
+  if (v.fps && v.fps > 0) metaParts.push(`${Math.round(v.fps)} fps`);
+  if (v.bitrate && v.bitrate > 0) metaParts.push(`${Math.round(v.bitrate / 1000)} kbps`);
+  if (v.audio_codec && v.audio_codec !== 'aac') metaParts.push(v.audio_codec.toUpperCase());
+  if (v.audio_sample_rate && v.audio_sample_rate > 0) metaParts.push(`${Math.round(v.audio_sample_rate / 1000)} kHz`);
+  $('videoMeta').textContent = metaParts.filter(Boolean).join(' · ');
 
   // Set favorite button
   const favBtn = $('favCurrentVideo');
@@ -709,6 +785,9 @@ function openVideo(idx) {
   $('commentsList').innerHTML = '';
   $('commentsBody').classList.add('hidden');
   $('commentsToggle').textContent = 'Afficher';
+
+  // Load related videos from same performer
+  loadRelatedVideos(v.id);
 }
 
 function closeVideoModal() {
@@ -724,6 +803,35 @@ function closeVideoModal() {
   $('videoModal').classList.add('hidden');
   document.body.style.overflow = '';
   clearTimeout(uiHideTimer);
+  // Hide related when closing
+  const vpRel = $('vpRelated');
+  if (vpRel) vpRel.classList.add('hidden');
+}
+
+/**
+ * Fetch and render related videos (same performer) in the player sidebar.
+ * @param {number} mediaId
+ */
+async function loadRelatedVideos(mediaId) {
+  const el = $('vpRelated');
+  const grid = $('vpRelatedGrid');
+  if (!el || !grid) return;
+  el.classList.add('hidden');
+  try {
+    const { data } = await apiFetch(`${API}/media/${mediaId}/related?limit=8`);
+    if (!data.length) return;
+    el.classList.remove('hidden');
+    grid.innerHTML = data.map(r => `
+      <div class="related-card" onclick="openRelatedVideo(${r.id})">
+        <img src="/thumb/${r.id}" alt="${escapeHtml(r.filename)}" loading="lazy"
+          onerror="handleThumbError(this,${r.id})">
+        <div class="related-info">
+          <div class="related-name" title="${escapeHtml(r.filename)}">${escapeHtml(r.filename)}</div>
+          <div class="related-meta">${r.duration ? formatDuration(r.duration) : ''} · ${formatSize(r.size)}</div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { el.classList.add('hidden'); }
 }
 
 function showSeekIndicator(text) {
@@ -786,8 +894,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
 $('closeVideo').addEventListener('click', closeVideoModal);
 $('videoModal').addEventListener('click', e => { if (e.target === $('videoModal')) closeVideoModal(); });
-$('videoPrev').addEventListener('click', () => { if (state.videoIndex > 0) openVideo(state.videoIndex - 1); });
-$('videoNext').addEventListener('click', () => { if (state.videoIndex < state.videos.length - 1) openVideo(state.videoIndex + 1); });
+$('videoPrev').addEventListener('click', () => {
+  if (state.videoIndex > 0) {
+    const prevId = state.videos[state.videoIndex - 1]?.id;
+    if (prevId) openVideoById(prevId);
+  }
+});
+$('videoNext').addEventListener('click', () => {
+  if (state.videoIndex < state.videos.length - 1) {
+    const nextId = state.videos[state.videoIndex + 1]?.id;
+    if (nextId) openVideoById(nextId);
+  }
+});
 
 // Play/Pause
 $('vpPlayPause').addEventListener('click', () => {
@@ -1771,9 +1889,64 @@ window.openPhoto = openPhoto;
 window.loadVideos = loadVideos;
 window.loadPhotos = loadPhotos;
 window.handleThumbError = handleThumbError;
+window.renderSingleVideoCard = renderSingleVideoCard;
+
+// Related video navigation (opens by media id)
+function openRelatedVideo(id) { openVideoById(id); }
+window.openRelatedVideo = openRelatedVideo;
+
+/* ── Theme toggle ───────────────────────────────────────────── */
+function initTheme() {
+  const stored = localStorage.getItem('xflix_theme');
+  if (stored === 'light') {
+    document.documentElement.classList.add('light-theme');
+    const btn = $('btnTheme');
+    if (btn) btn.textContent = '☀️';
+  }
+}
+
+if ($('btnTheme')) {
+  $('btnTheme').addEventListener('click', () => {
+    const isLight = document.documentElement.classList.toggle('light-theme');
+    $('btnTheme').textContent = isLight ? '☀️' : '🌙';
+    localStorage.setItem('xflix_theme', isLight ? 'light' : 'dark');
+  });
+}
+
+/* ── Nouveautés page ────────────────────────────────────────── */
+let currentNewTab = 'new-videos';
+
+$qa('[data-ntab]').forEach(t => {
+  t.addEventListener('click', () => {
+    $qa('[data-ntab]').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    currentNewTab = t.dataset.ntab;
+    loadNewPage();
+  });
+});
+
+async function loadNewPage() {
+  const grid = $('newPageGrid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>Chargement…</p></div>';
+  const type = currentNewTab === 'new-videos' ? 'video' : 'photo';
+  try {
+    const { data } = await apiFetch(`${API}/new?type=${type}&limit=80`);
+    if (type === 'video') {
+      state.videos = data;
+      renderVideoCards(data, grid, true);
+    } else {
+      state.photos = data;
+      renderPhotoCards(data, grid);
+    }
+  } catch(e) {
+    grid.innerHTML = `<div class="empty-state"><p>${e.message}</p></div>`;
+  }
+}
 
 // Initial load
 authInit();
+initTheme();
 
 // Restore sort preferences from previous session
 (function restoreSortPrefs() {
@@ -1788,3 +1961,5 @@ authInit();
 loadPerformers({});
 loadHeroStats();
 checkScanOnLoad();
+// Pre-populate tag filter (lazy, non-blocking)
+loadVideoTagFilter();

@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { initSchema, clearAll } = require('./db');
-const { scanDirectory, getProgress, enrichDurations } = require('./scanner');
+const { scanDirectory, getProgress, enrichDurations, generateMissingThumbs } = require('./scanner');
 
 const [,, cmd, arg] = process.argv;
 
@@ -19,6 +19,9 @@ async function main() {
         await enrichDurations(3);
         console.log('✅  Durées enrichies.');
       }
+      console.log('⏳  Génération des miniatures manquantes…');
+      await generateMissingThumbs(300, 3);
+      console.log('✅  Miniatures générées.');
     } catch(e) {
       console.error('❌ Scan failed:', e.message);
       process.exit(1);

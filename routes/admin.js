@@ -158,6 +158,9 @@ router.post('/scan', async (req, res) => {
       send({ status: 'done', ...p });
       res.end();
     }
+    // Enrichissement en arrière-plan (non bloquant pour le client)
+    scanner.enrichDurations(3).catch(e => console.error('[post-scan enrichDurations]', e.message));
+    scanner.generateMissingThumbs(300, 3).catch(e => console.error('[post-scan thumbs]', e.message));
   } catch(e) {
     send({ status: 'error', error: e.message });
     if (!closed) res.end();

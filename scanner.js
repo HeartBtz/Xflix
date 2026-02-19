@@ -253,10 +253,35 @@ async function enrichDurations(concurrency = 3) {
   } catch(e) { console.error('[enrichDurations]', e.message); }
 }
 
+/**
+ * Génère les miniatures manquantes en arrière-plan après un scan.
+ * Traite les `limit` médias les plus récents sans thumb, avec `concurrency` workers.
+ */
+async function generateMissingThumbs(limit = 300, concurrency = 3) {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, file_path, type FROM media WHERE thumb_path IS NULL ORDER BY id DESC LIMIT ?',
+      [limit]
+    );
+    if (!rows.length) return;
+    console.log(`[thumbs] Génération de ${rows.length} miniature(s) manquante(s)…`);
+    const tasks = rows.map(m => async () => {
+      try {
+        const tp = m.type === 'video'
+          ? await generateVideoThumb(m.file_path, m.id)
+          : await generatePhotoThumb(m.file_path, m.id);
+        if (tp) await pool.query('UPDATE media SET thumb_path = ? WHERE id = ?', [tp, m.id]);
+      } catch(_) {}
+    });
+    await runConcurrent(tasks, concurrency);
+    console.log('[thumbs] Génération terminée.');
+  } catch(e) { console.error('[generateMissingThumbs]', e.message); }
+}
+
 module.exports = {
   // Constants (shared with admin.js and other routes)
   MEDIA_DIR, THUMB_DIR, VIDEO_EXTS, PHOTO_EXTS, MIME_MAP,
   // Functions
   scanDirectory, getProgress, cancelScan,
-  generateVideoThumb, generatePhotoThumb, enrichDurations,
+  generateVideoThumb, generatePhotoThumb, enrichDurations, generateMissingThumbs,
 };

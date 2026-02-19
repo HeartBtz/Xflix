@@ -18,10 +18,8 @@ router.get('/performers', async (req, res) => {
     const sortCol = allowed.includes(sort) ? sort : 'name';
     const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
 
-    let query = `SELECT p.*, COALESCE(
-      (SELECT id FROM media WHERE performer_id = p.id AND type = 'photo' ORDER BY RAND() LIMIT 1),
-      (SELECT id FROM media WHERE performer_id = p.id ORDER BY RAND() LIMIT 1)
-    ) AS random_cover_id FROM performers p WHERE 1=1`;
+    // random_cover_id est rafraîcchi en DB après chaque scan — pas de RAND() par ligne ici
+    let query = `SELECT p.* FROM performers p WHERE 1=1`;
     const params = [];
 
     if (q) { query += ` AND p.name LIKE ?`; params.push(`%${q}%`); }

@@ -154,6 +154,15 @@ async function initSchema() {
         FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // ── Migrations : index manquants + colonnes ajoutées post-création ──────
+    // Idempotent — sécurisé sur une base existante
+    await conn.query(`ALTER TABLE performers ADD COLUMN IF NOT EXISTS random_cover_id INT NULL`);
+    await conn.query(`ALTER TABLE performers DROP INDEX IF EXISTS idx_performers_name`);
+    await conn.query(`ALTER TABLE media ADD INDEX IF NOT EXISTS idx_last_viewed (last_viewed)`);
+    await conn.query(`ALTER TABLE media ADD INDEX IF NOT EXISTS idx_performer_type (performer_id, type)`);
+    await conn.query(`ALTER TABLE media ADD INDEX IF NOT EXISTS idx_type_favorite (type, favorite)`);
+    await conn.query(`ALTER TABLE media ADD INDEX IF NOT EXISTS idx_type_viewcount (type, view_count)`);
   } finally {
     conn.release();
   }
@@ -242,6 +251,14 @@ async function updatePerformerCounts() {
     UPDATE performers p SET cover_media_id = (
       SELECT id FROM media WHERE performer_id = p.id AND type = 'photo' LIMIT 1
     ) WHERE p.cover_media_id IS NULL
+  `);
+  // Rafraîchit random_cover_id (préfère les photos) — exécuté après chaque scan,
+  // évite N sous-requêtes RAND() à chaque chargement de la page d'accueil.
+  await pool.query(`
+    UPDATE performers p SET random_cover_id = COALESCE(
+      (SELECT id FROM media WHERE performer_id = p.id AND type = 'photo' ORDER BY RAND() LIMIT 1),
+      (SELECT id FROM media WHERE performer_id = p.id ORDER BY RAND() LIMIT 1)
+    )
   `);
 }
 

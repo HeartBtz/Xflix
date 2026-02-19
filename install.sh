@@ -1,300 +1,327 @@
-#!/bin/bash
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  XFlix — Script d’installation                              ║
-# ║  Node.js (nvm) • MariaDB • npm • PM2 • compte admin         ║
-# ╚══════════════════════════════════════════════════════════════════╝
-
+#!/usr/bin/env bash
+# ╔═════════════════════════════════════════════════════════════════════╗
+# ║  XFlix — Script d'installation — pur bash                         ║
+# ║  Node.js (nvm) · MariaDB · ffmpeg · npm · PM2 · secrets aléatoires║
+# ╚═════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# ── Couleurs ─────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-ok()   { echo -e "${GREEN}✅ $*${NC}"; }
-info() { echo -e "${BLUE}▶  $*${NC}"; }
-warn() { echo -e "${YELLOW}⚠  $*${NC}"; }
-err()  { echo -e "${RED}❌ $*${NC}" >&2; }
-step() { echo -e "\n${BOLD}${CYAN}━━ $* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; }
+# ── Couleurs & helpers ────────────────────────────────────────────────
+RED='\033[0;31m'; GRN='\033[0;32m'; YEL='\033[1;33m'
+BLU='\033[0;34m'; CYN='\033[0;36m'; BLD='\033[1m'; NC='\033[0m'
+ok()   { echo -e "${GRN}✓  $*${NC}"; }
+info() { echo -e "${BLU}▶  $*${NC}"; }
+warn() { echo -e "${YEL}⚠  $*${NC}"; }
+err()  { echo -e "${RED}✗  $*${NC}" >&2; }
+step() { echo -e "\n${BLD}${CYN}━━  $*${NC}"; }
+die()  { err "$*"; exit 1; }
 
-echo -e "${BOLD}"
-echo "╔══════════════════════════════════════════════════════╗"
-echo "║              XFlix — Installation complète           ║"
-echo "╚══════════════════════════════════════════════════════╝"
-echo -e "${NC}"
+# ── Générateurs aléatoires (openssl uniquement) ──────────────────────
+rand_hex()  { openssl rand -hex "${1:-32}"; }
+rand_pass() {
+  # 20 caractères alphanumériques + symboles sûrs pour bash et SQL
+  tr -dc 'A-Za-z0-9@#%+=' < /dev/urandom | head -c "${1:-20}"
+}
+
+echo ""
+echo -e "${BLD}╔══════════════════════════════════════════════════════╗"
+echo    "║         XFlix — Installation complète  🎬            ║"
+echo -e "╚══════════════════════════════════════════════════════╝${NC}"
+echo ""
 
 # ════════════════════════════════════════════════════════════════════
 # 1. NODE.JS VIA NVM
 # ════════════════════════════════════════════════════════════════════
-step "Node.js"
+step "1/7 · Node.js"
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && source "$NVM_DIR/bash_completion"
 
-if ! command -v node &>/dev/null || [[ "$(node -e 'process.stdout.write(process.versions.node.split(".")[0])')" -lt 18 ]]; then
+NODE_OK=false
+if command -v node &>/dev/null; then
+  NODE_MAJOR="$(node -e 'process.stdout.write(process.versions.node.split(".")[0])')"
+  [[ "$NODE_MAJOR" -ge 18 ]] && NODE_OK=true
+fi
+
+if ! $NODE_OK; then
   info "Node.js >= 18 non trouvé — installation via nvm..."
   if [ ! -d "$NVM_DIR" ]; then
-    info "Téléchargement de nvm..."
+    info "Téléchargement de nvm v0.39.7..."
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
     source "$NVM_DIR/nvm.sh"
   fi
-  nvm install 20 --no-progress
-  nvm use 20
-  nvm alias default 20
-  ok "Node.js $(node --version) installé via nvm."
+  nvm install --lts --no-progress
+  nvm use --lts
+  nvm alias default 'lts/*'
+  ok "Node.js $(node --version) installé."
 else
-  ok "Node.js $(node --version) — OK"
+  ok "Node.js $(node --version) — déjà disponible."
 fi
 
-if ! command -v npm &>/dev/null; then
-  err "npm introuvable même après installation de Node. Abandon."
-  exit 1
-fi
+command -v npm &>/dev/null || die "npm introuvable."
 
 # ════════════════════════════════════════════════════════════════════
-# 2. MARIADB
+# 2. PAQUETS SYSTÈME (MariaDB, ffmpeg)
 # ════════════════════════════════════════════════════════════════════
-step "MariaDB"
+step "2/7 · Paquets système"
 
-MYSQLD_BIN=""
-for b in /usr/sbin/mariadbd /usr/sbin/mysqld; do
-  [ -x "$b" ] && { MYSQLD_BIN="$b"; break; }
-done
+APT_NEEDED=()
+{ command -v mariadb &>/dev/null || command -v mysql &>/dev/null; } || APT_NEEDED+=(mariadb-server)
+command -v ffmpeg &>/dev/null || APT_NEEDED+=(ffmpeg)
 
-MYSQL_CLIENT=""
-for c in mariadb mysql; do
-  command -v "$c" &>/dev/null && { MYSQL_CLIENT="$c"; break; }
-done
-
-if [ -z "$MYSQLD_BIN" ]; then
-  info "MariaDB non installé — installation via apt..."
-  if ! command -v apt-get &>/dev/null; then
-    err "apt-get introuvable. Installez MariaDB manuellement puis relancez."
-    exit 1
-  fi
+if [ ${#APT_NEEDED[@]} -gt 0 ]; then
+  command -v apt-get &>/dev/null || die "apt-get introuvable. Installez manuellement : ${APT_NEEDED[*]}"
+  info "Installation via apt : ${APT_NEEDED[*]}"
   export DEBIAN_FRONTEND=noninteractive
   sudo apt-get update -qq
-  sudo apt-get install -y --no-install-recommends mariadb-server 2>&1 | grep -v "^debconf"
-  MYSQLD_BIN="/usr/sbin/mariadbd"
-  MYSQL_CLIENT="mariadb"
-  ok "MariaDB installé."
+  sudo apt-get install -y --no-install-recommends "${APT_NEEDED[@]}" 2>&1 \
+    | grep -E '^(Unpacking|Setting up|Processing)' || true
+  ok "Paquets installés."
 else
-  ok "MariaDB binaire trouvé : $MYSQLD_BIN"
+  ok "MariaDB et ffmpeg — déjà disponibles."
 fi
 
-# ── Installer ffmpeg si absent (nécessaire pour les miniatures vidéo) ──
-if ! command -v ffmpeg &>/dev/null; then
-  info "ffmpeg non trouvé — installation via apt..."
-  if command -v apt-get &>/dev/null; then
-    sudo apt-get install -y --no-install-recommends ffmpeg 2>&1 | grep -v "^debconf"
-    ok "ffmpeg installé."
-  else
-    warn "apt-get introuvable. Installez ffmpeg manuellement pour activer les miniatures vidéo."
-  fi
-else
-  ok "ffmpeg trouvé : $(ffmpeg -version 2>&1 | head -1 | cut -d' ' -f3)"
-fi
+# Choisit le client SQL disponible
+MYSQL_BIN=""
+for c in mariadb mysql; do command -v "$c" &>/dev/null && { MYSQL_BIN="$c"; break; }; done
+[ -z "$MYSQL_BIN" ] && die "Aucun client MySQL/MariaDB trouvé."
 
-# ── Démarrer MariaDB si pas actif ───────────────────────────────────
+# Choisit le daemon
+MYSQLD_BIN=""
+for b in /usr/sbin/mariadbd /usr/sbin/mysqld; do [ -x "$b" ] && { MYSQLD_BIN="$b"; break; }; done
+
+# ── Démarrage de MariaDB ─────────────────────────────────────────────
 if ! ss -tlnp 2>/dev/null | grep -q ':3306'; then
   info "Démarrage de MariaDB..."
+  sudo mkdir -p /run/mysqld
+  MYSQL_UID="$(id -u mysql 2>/dev/null || true)"
+  MYSQL_GID="$(id -g mysql 2>/dev/null || true)"
+  [ -n "$MYSQL_UID" ] && sudo chown "${MYSQL_UID}:${MYSQL_GID}" /run/mysqld 2>/dev/null || true
 
-  # Créer /run/mysqld si nécessaire
-  if [ ! -d /run/mysqld ]; then
-    sudo mkdir -p /run/mysqld
-  fi
-  MYSQL_UID=$(id -u mysql 2>/dev/null || echo "")
-  MYSQL_GID=$(id -g mysql 2>/dev/null || echo "")
-  if [ -n "$MYSQL_UID" ]; then
-    sudo chown "${MYSQL_UID}:${MYSQL_GID}" /run/mysqld 2>/dev/null || true
-  fi
+  sudo systemctl start mariadb 2>/dev/null \
+    || sudo systemctl start mysql 2>/dev/null \
+    || { [ -n "$MYSQLD_BIN" ] && sudo "$MYSQLD_BIN" --user=mysql --daemonize 2>/dev/null; } \
+    || true
 
-  # Essayer systemctl d'abord
-  if sudo systemctl start mariadb 2>/dev/null || sudo systemctl start mysql 2>/dev/null; then
-    sleep 3
-  else
-    # Démarrage manuel
-    sudo "$MYSQLD_BIN" --user=mysql --daemonize 2>/dev/null || \
-    sudo "$MYSQLD_BIN" --user=mysql &>/dev/null &
-    sleep 6
-  fi
-
-  if ss -tlnp 2>/dev/null | grep -q ':3306'; then
-    ok "MariaDB démarré."
-  else
-    err "Impossible de démarrer MariaDB. Vérifiez les logs : /var/log/mysql/error.log"
-    exit 1
-  fi
+  # Attente jusqu'à 20s
+  for i in $(seq 1 20); do
+    ss -tlnp 2>/dev/null | grep -q ':3306' && break
+    sleep 1
+  done
+  ss -tlnp 2>/dev/null | grep -q ':3306' \
+    || die "Impossible de démarrer MariaDB. Logs : /var/log/mysql/error.log"
+  ok "MariaDB démarré."
 else
-  ok "MariaDB déjà en cours d'exécution."
-fi
-
-# ── Configurer la base de données ───────────────────────────────────
-info "Configuration de la base de données xflix..."
-_SQL="CREATE DATABASE IF NOT EXISTS xflix CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'xflix'@'localhost' IDENTIFIED BY 'xflix2026';
-GRANT ALL PRIVILEGES ON xflix.* TO 'xflix'@'localhost';
-FLUSH PRIVILEGES;"
-
-printf '%s\n' "$_SQL" | sudo "$MYSQL_CLIENT" -u root 2>/dev/null || \
-printf '%s\n' "$_SQL" | sudo mariadb          -u root 2>/dev/null || \
-printf '%s\n' "$_SQL" | sudo mysql            -u root 2>/dev/null || true
-ok "Base de données prête (xflix / xflix2026)."
-
-# ════════════════════════════════════════════════════════════════════
-# 3. DÉPENDANCES NPM
-# ════════════════════════════════════════════════════════════════════
-step "Dépendances npm"
-
-info "Installation des paquets..."
-if npm ci --omit=dev 2>&1 | tail -3; then
-  ok "Dépendances installées (npm ci)."
-elif npm install 2>&1 | tail -3; then
-  ok "Dépendances installées (npm install)."
-else
-  warn "Retry sans scripts natifs..."
-  npm install --ignore-scripts
-  ok "Dépendances installées (--ignore-scripts)."
+  ok "MariaDB — déjà en cours d'exécution."
 fi
 
 # ════════════════════════════════════════════════════════════════════
-# 4. RÉPERTOIRES DE DONNÉES
+# 3. CONFIGURATION .env
 # ════════════════════════════════════════════════════════════════════
-step "Répertoires"
+step "3/7 · Configuration .env"
 
-mkdir -p data/thumbs
-ok "data/thumbs créé."
+# Auto-détection du dossier médias
+detect_media_dir() {
+  local candidates=("/home/coder/OF" "/OF" "$HOME/OF" "/mnt/media" "/mnt/nas" "$HOME/Videos" "$HOME/Vidéos")
+  for d in "${candidates[@]}"; do
+    [ -d "$d" ] && { echo "$d"; return; }
+  done
+  echo ""
+}
 
-# Créer .env si absent
 if [ ! -f .env ]; then
-  info "Création du fichier .env par défaut..."
-  cat > .env <<'ENV'
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=xflix
-DB_PASS=xflix2026
-DB_NAME=xflix
-JWT_SECRET=changeme_random_secret_here
-PORT=3000
-MEDIA_DIR=/home/coder/OF
-ENV
-  warn ".env créé — pensez à modifier JWT_SECRET et MEDIA_DIR !"
+  info "Génération des secrets aléatoires et du fichier .env..."
+
+  DB_PASS_GEN="$(rand_pass 22)"
+  JWT_GEN="$(rand_hex 48)"
+  MEDIA_DETECTED="$(detect_media_dir)"
+
+  # Écriture du .env ligne par ligne (100% bash, pas de heredoc imbriqué)
+  {
+    echo "# XFlix — Configuration — généré le $(date '+%Y-%m-%d %H:%M:%S')"
+    echo ""
+    echo "PORT=3000"
+    echo ""
+    echo "# Chemin absolu vers le dossier de médias"
+    echo "MEDIA_DIR=${MEDIA_DETECTED:-/home/coder/OF}"
+    echo ""
+    echo "# Base de données"
+    echo "DB_HOST=localhost"
+    echo "DB_PORT=3306"
+    echo "DB_USER=xflix"
+    echo "DB_PASS=${DB_PASS_GEN}"
+    echo "DB_NAME=xflix"
+    echo ""
+    echo "# JWT"
+    echo "JWT_SECRET=${JWT_GEN}"
+    echo "JWT_EXPIRES=7d"
+  } > .env
+
+  ok ".env créé avec secrets aléatoires."
+  [ -n "$MEDIA_DETECTED" ] \
+    && ok "MEDIA_DIR auto-détecté : $MEDIA_DETECTED" \
+    || warn "MEDIA_DIR non trouvé — éditez .env avant le premier scan."
 else
   ok ".env existant conservé."
+  MEDIA_DETECTED="$(grep '^MEDIA_DIR=' .env | cut -d= -f2-)"
 fi
 
-# Vérifier si MEDIA_DIR est encore la valeur par défaut
-MEDIA_DIR_VAL="$(grep '^MEDIA_DIR=' .env 2>/dev/null | cut -d= -f2-)"
-if [[ "$MEDIA_DIR_VAL" == "/home/coder/OF" ]] || [[ -z "$MEDIA_DIR_VAL" ]]; then
-  warn "MEDIA_DIR n’est pas configuré dans .env — modifiez-le avant de lancer un scan."
-elif [ ! -d "$MEDIA_DIR_VAL" ]; then
-  warn "MEDIA_DIR=$MEDIA_DIR_VAL n’existe pas encore sur le disque."
+# Charger les variables DB depuis .env
+DB_USER="$(grep '^DB_USER=' .env | cut -d= -f2-)"
+DB_PASS="$(grep '^DB_PASS=' .env | cut -d= -f2-)"
+DB_NAME="$(grep '^DB_NAME=' .env | cut -d= -f2-)"
+PORT_VAL="$(grep '^PORT=' .env | cut -d= -f2-)"
+PORT_VAL="${PORT_VAL:-3000}"
+
+# ── Création de la base de données ──────────────────────────────────
+info "Configuration de la base de données '$DB_NAME'..."
+
+SQL_SETUP="$(printf \
+  "CREATE DATABASE IF NOT EXISTS \`%s\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '%s'@'localhost' IDENTIFIED BY '%s';
+ALTER USER '%s'@'localhost' IDENTIFIED BY '%s';
+GRANT ALL PRIVILEGES ON \`%s\`.* TO '%s'@'localhost';
+FLUSH PRIVILEGES;" \
+  "$DB_NAME" \
+  "$DB_USER" "$DB_PASS" \
+  "$DB_USER" "$DB_PASS" \
+  "$DB_NAME" "$DB_USER")"
+
+printf '%s\n' "$SQL_SETUP" | sudo "$MYSQL_BIN" -u root 2>/dev/null \
+  || printf '%s\n' "$SQL_SETUP" | sudo mysql -u root 2>/dev/null \
+  || die "Impossible de configurer la base de données."
+
+ok "Base '$DB_NAME' prête (user: $DB_USER)."
+
+# ════════════════════════════════════════════════════════════════════
+# 4. DÉPENDANCES NPM
+# ════════════════════════════════════════════════════════════════════
+step "4/7 · Dépendances npm"
+
+if npm ci --omit=dev --prefer-offline 2>&1 | tail -2; then
+  ok "Dépendances installées (npm ci)."
+elif npm install --omit=dev 2>&1 | tail -2; then
+  ok "Dépendances installées (npm install)."
+else
+  npm install --ignore-scripts && ok "Dépendances installées (--ignore-scripts)."
 fi
 
 # ════════════════════════════════════════════════════════════════════
-# 5. COMPTE ADMIN PAR DÉFAUT
+# 5. RÉPERTOIRES DE DONNÉES
 # ════════════════════════════════════════════════════════════════════
-step "Compte administrateur"
+step "5/7 · Répertoires"
 
-info "Création du compte admin si absent..."
-node - <<'NODEJS'
+mkdir -p data/thumbs data/encoded
+ok "data/thumbs et data/encoded créés."
+
+# ════════════════════════════════════════════════════════════════════
+# 6. COMPTE ADMINISTRATEUR
+# ════════════════════════════════════════════════════════════════════
+step "6/7 · Compte administrateur"
+
+ADMIN_CREDS_FILE="${SCRIPT_DIR}/.admin-creds"
+
+if [ ! -f "$ADMIN_CREDS_FILE" ]; then
+  ADMIN_EMAIL="admin@xflix.local"
+  ADMIN_PASS="$(rand_pass 16)"
+  printf 'ADMIN_EMAIL=%s\nADMIN_PASS=%s\n' "$ADMIN_EMAIL" "$ADMIN_PASS" > "$ADMIN_CREDS_FILE"
+  chmod 600 "$ADMIN_CREDS_FILE"
+else
+  source "$ADMIN_CREDS_FILE"
+  ADMIN_EMAIL="${ADMIN_EMAIL:-admin@xflix.local}"
+  ADMIN_PASS="${ADMIN_PASS:-admin}"
+fi
+
+info "Création du compte admin (si absent)..."
+
+# Génère un hash bcrypt et insère en base via node -e (Node.js = dépendance obligatoire)
+ADMIN_CREATED="$(node -e "
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
 const { pool, initSchema } = require('./db');
-
 (async () => {
   await initSchema();
-
-  const email    = 'admin@xflix.local';
-  const username = 'admin';
-  const password = 'xflix2026';
-
-  const [[existing]] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
-  if (existing) {
-    console.log(`✅ Compte admin déjà existant (id=${existing.id})`);
-  } else {
-    const hash = await bcrypt.hash(password, 12);
-    const [r]  = await pool.query(
-      'INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)',
-      [username, email, hash, 'admin']
+  const [[ex]] = await pool.query('SELECT id FROM users WHERE email=?', ['${ADMIN_EMAIL}']);
+  if (ex) { console.log('exists:' + ex.id); }
+  else {
+    const h = await bcrypt.hash('${ADMIN_PASS}', 12);
+    const [r] = await pool.query(
+      'INSERT INTO users (username,email,password_hash,role) VALUES (?,?,?,?)',
+      ['admin','${ADMIN_EMAIL}',h,'admin']
     );
-    console.log(`✅ Compte admin créé (id=${r.insertId}) — ${email} / ${password}`);
+    console.log('created:' + r.insertId);
   }
-
   await pool.end();
-})().catch(e => { console.error('❌ Erreur création admin :', e.message); process.exit(1); });
-NODEJS
+})().catch(e => { process.stderr.write(e.message + '\n'); process.exit(1); });
+" 2>&1)"
+
+if [[ "$ADMIN_CREATED" == exists:* ]]; then
+  ok "Compte admin déjà existant (id=${ADMIN_CREATED#exists:})."
+elif [[ "$ADMIN_CREATED" == created:* ]]; then
+  ok "Compte admin créé (id=${ADMIN_CREATED#created:})."
+else
+  warn "Résultat inattendu : $ADMIN_CREATED"
+fi
 
 # ════════════════════════════════════════════════════════════════════
-# 6. PERSISTANCE DU PROCESS (PM2)
+# 7. PM2
 # ════════════════════════════════════════════════════════════════════
-step "Gestionnaire de process (PM2)"
+step "7/7 · Gestionnaire de processus (PM2)"
 
 if ! command -v pm2 &>/dev/null; then
-  info "Installation de PM2..."
+  info "Installation de PM2 (global)..."
   npm install -g pm2 2>&1 | tail -2
   ok "PM2 installé."
 else
-  ok "PM2 déjà disponible ($(pm2 --version 2>/dev/null | tail -1))."
+  ok "PM2 $(pm2 --version 2>/dev/null | tail -1) — déjà disponible."
 fi
 
-# Écrire le fichier service systemd au cas où (utile sur vrais serveurs Linux)
-NODE_BIN="$(which node)"
-XFLIX_DIR="$(pwd)"
-sudo tee /etc/systemd/system/xflix.service > /dev/null 2>&1 <<SYSTEMD
-[Unit]
-Description=XFlix Media Server
-After=network.target mariadb.service
-Wants=mariadb.service
-
-[Service]
-Type=simple
-User=${USER:-coder}
-WorkingDirectory=${XFLIX_DIR}
-ExecStart=${NODE_BIN} server.js
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-EnvironmentFile=${XFLIX_DIR}/.env
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD
-
-# Arrêter toute instance existante sur le port 3000
-fuser -k 3000/tcp 2>/dev/null || true
+# Libérer le port si nécessaire
+fuser -k "${PORT_VAL}/tcp" 2>/dev/null || true
 pm2 delete xflix 2>/dev/null || true
 sleep 1
 
-# Démarrer via PM2
-pm2 start server.js --name xflix 2>&1 | grep -E 'online|error|Done'
+pm2 start server.js --name xflix 2>&1 | grep -E 'online|error' || true
 pm2 save
 ok "XFlix démarré via PM2."
 
-# Configurer PM2 pour démarrer au boot
-PM2_STARTUP=$(pm2 startup 2>&1 | grep 'sudo env')
+PM2_STARTUP="$(pm2 startup 2>&1 | grep 'sudo env' || true)"
 if [ -n "$PM2_STARTUP" ]; then
-  eval "$PM2_STARTUP" 2>&1 | grep -E 'Command|error|enabled' || true
+  eval "$PM2_STARTUP" 2>&1 | grep -E 'enabled|Command' || true
   ok "PM2 configuré pour démarrer au boot."
 fi
 
 # ════════════════════════════════════════════════════════════════════
-# 7. RÉSUMÉ
+# RÉSUMÉ
 # ════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗"
-echo "║           Installation terminée avec succès ! 🎉     ║"
-echo "╚══════════════════════════════════════════════════════╝${NC}"
+echo -e "${BLD}${GRN}╔══════════════════════════════════════════════════════╗"
+echo    "║         Installation terminée avec succès !  🎉      ║"
+echo -e "╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${CYAN}URL            :${NC} http://localhost:3000"
-echo -e "  ${CYAN}Admin email    :${NC} admin@xflix.local"
-echo -e "  ${CYAN}Admin password :${NC} xflix2026"
-echo -e "  ${CYAN}Logs           :${NC} pm2 logs xflix"
-echo -e "  ${CYAN}Contrôle PM2   :${NC} pm2 [start|stop|restart|status] xflix"
+echo -e "  ${CYN}${BLD}Accès${NC}"
+echo -e "    URL             :  http://localhost:${PORT_VAL}"
+echo -e "    Email admin     :  ${ADMIN_EMAIL}"
+echo -e "    Mot de passe    :  ${ADMIN_PASS}  ${YEL}(sauvegardé dans .admin-creds)${NC}"
 echo ""
-echo -e "  ${YELLOW}⚠  Avant le premier scan, vérifiez MEDIA_DIR dans .env${NC}"
-echo -e "     Chemin actuel : ${MEDIA_DIR_VAL:-non défini}"
-echo -e "     Pour modifier : ${BOLD}nano .env${NC}"
+echo -e "  ${CYN}${BLD}Base de données${NC}"
+echo -e "    Base / User     :  ${DB_NAME} / ${DB_USER}"
+echo -e "    Mot de passe DB :  ${DB_PASS}  ${YEL}(voir .env)${NC}"
+echo ""
+echo -e "  ${CYN}${BLD}Médias${NC}"
+MDIR="${MEDIA_DETECTED:-}"
+if [ -n "$MDIR" ] && [ -d "$MDIR" ]; then
+  echo -e "    MEDIA_DIR       :  ${BLD}${MDIR}${NC}  ${GRN}✓ trouvé${NC}"
+else
+  echo -e "    MEDIA_DIR       :  ${YEL}Non configuré — éditez .env puis relancez${NC}"
+fi
+echo ""
+echo -e "  ${CYN}${BLD}Commandes${NC}"
+echo -e "    Logs            :  pm2 logs xflix"
+echo -e "    Redémarrer      :  pm2 restart xflix"
+echo -e "    Arrêter         :  pm2 stop xflix"
+echo -e "    Scanner médias  :  node cli.js scan"
 echo ""

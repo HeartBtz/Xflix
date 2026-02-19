@@ -38,12 +38,27 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Init DB schema then start server
-initSchema().then(() => {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n  🎬  XFlix running at http://localhost:${PORT}  (MariaDB)\n`);
-  });
-}).catch(e => {
-  console.error('Failed to initialize database:', e.message);
-  process.exit(1);
-});
+// Init DB schema with retry — handles MariaDB still starting up
+async function startServer(maxAttempts = 10, delayMs = 3000) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await initSchema();
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`\n  🎬  XFlix running at http://localhost:${PORT}  (MariaDB)\n`);
+      });
+      return;
+    } catch (e) {
+      if (attempt === maxAttempts) {
+        console.error(`\n  ❌  Impossible de démarrer après ${maxAttempts} tentatives.`);
+        console.error(`  DB error: ${e.message}`);
+        console.error('  Vérifiez que MariaDB est lancé et que les identifiants .env sont corrects.');
+        process.exit(1);
+      }
+      console.warn(`  ⏳  DB non disponible (tentative ${attempt}/${maxAttempts}) : ${e.message}`);
+      console.warn(`  ↻   Nouvelle tentative dans ${delayMs / 1000}s…`);
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+}
+
+startServer();

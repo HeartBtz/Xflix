@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { initSchema, clearAll } = require('./db');
-const { scanDirectory, getProgress } = require('./scanner');
+const { scanDirectory, getProgress, enrichDurations } = require('./scanner');
 
 const [,, cmd, arg] = process.argv;
 
@@ -14,6 +14,11 @@ async function main() {
       await scanDirectory(mode);
       const p = getProgress();
       console.log(`\n✅ Scan complete! ${p.done} files indexed, ${p.errors} errors.`);
+      if (mode === 'all' || mode === 'videos') {
+        console.log('⏳  Enrichissement des durées vidéo…');
+        await enrichDurations(3);
+        console.log('✅  Durées enrichies.');
+      }
     } catch(e) {
       console.error('❌ Scan failed:', e.message);
       process.exit(1);

@@ -206,7 +206,61 @@ const { pool, initSchema } = require('./db');
 NODEJS
 
 # ════════════════════════════════════════════════════════════════════
-# 6. RÉSUMÉ & DÉMARRAGE
+# 6. PERSISTANCE DU PROCESS (PM2)
+# ════════════════════════════════════════════════════════════════════
+step "Gestionnaire de process (PM2)"
+
+if ! command -v pm2 &>/dev/null; then
+  info "Installation de PM2..."
+  npm install -g pm2 2>&1 | tail -2
+  ok "PM2 installé."
+else
+  ok "PM2 déjà disponible ($(pm2 --version 2>/dev/null | tail -1))."
+fi
+
+# Écrire le fichier service systemd au cas où (utile sur vrais serveurs Linux)
+NODE_BIN="$(which node)"
+XFLIX_DIR="$(pwd)"
+sudo tee /etc/systemd/system/xflix.service > /dev/null 2>&1 <<SYSTEMD
+[Unit]
+Description=XFlix Media Server
+After=network.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=${USER:-coder}
+WorkingDirectory=${XFLIX_DIR}
+ExecStart=${NODE_BIN} server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+EnvironmentFile=${XFLIX_DIR}/.env
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMD
+
+# Arrêter toute instance existante sur le port 3000
+fuser -k 3000/tcp 2>/dev/null || true
+pm2 delete xflix 2>/dev/null || true
+sleep 1
+
+# Démarrer via PM2
+pm2 start server.js --name xflix 2>&1 | grep -E 'online|error|Done'
+pm2 save
+ok "XFlix démarré via PM2."
+
+# Configurer PM2 pour démarrer au boot
+PM2_STARTUP=$(pm2 startup 2>&1 | grep 'sudo env')
+if [ -n "$PM2_STARTUP" ]; then
+  eval "$PM2_STARTUP" 2>&1 | grep -E 'Command|error|enabled' || true
+  ok "PM2 configuré pour démarrer au boot."
+fi
+
+# ════════════════════════════════════════════════════════════════════
+# 7. RÉSUMÉ
 # ════════════════════════════════════════════════════════════════════
 echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗"
@@ -216,9 +270,6 @@ echo ""
 echo -e "  ${CYAN}URL            :${NC} http://localhost:3000"
 echo -e "  ${CYAN}Admin email    :${NC} admin@xflix.local"
 echo -e "  ${CYAN}Admin password :${NC} xflix2026"
-echo -e "  ${CYAN}Logs           :${NC} /tmp/xflix.log"
+echo -e "  ${CYAN}Logs           :${NC} pm2 logs xflix"
+echo -e "  ${CYAN}Contrôle       :${NC} pm2 [start|stop|restart|status] xflix"
 echo ""
-
-step "Démarrage du serveur"
-info "Lancement de XFlix (node server.js)..."
-exec node server.js

@@ -22,12 +22,16 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const { initSchema, pool } = require('./db');
 
 // ── Empêche tout crash sur rejection/exception non gérée ──────────
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err.message, err.stack);
+  // L'état du processus peut être corrompu — on laisse PM2 redémarrer
+  process.exit(1);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason instanceof Error ? reason.message : reason);
@@ -39,7 +43,17 @@ pool.on('error', (err) => {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || true,   // 'true' = reflect request origin (same as wildcard but sends Vary)
+  credentials: true,
+}));
+
+// Security headers (CSP is relaxed for inline styles/scripts used by the SPA)
+app.use(helmet({
+  contentSecurityPolicy: false,     // SPA uses inline scripts/styles
+  crossOriginEmbedderPolicy: false, // video/image streaming cross-origin
+}));
+
 // Gzip all JSON/HTML/CSS/JS (skip video/image — already compressed or streamed)
 // Also skip SSE (text/event-stream) since compression buffers and breaks streaming
 app.use(compression({
@@ -50,7 +64,18 @@ app.use(compression({
   },
   level: 6,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: false, limit: '1mb' }));
+
+// Rate limiting on auth endpoints (prevent brute-force)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 min
+  max: 30,                    // 30 attempts per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests — try again later' },
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: 0,              // toujours revalider (ETag/304)
   etag: true,
@@ -58,7 +83,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 // Routes
-app.use('/auth',      require('./routes/auth'));
+app.use('/auth',      authLimiter, require('./routes/auth'));
 app.use('/social',    require('./routes/social'));
 app.use('/admin',     require('./routes/admin'));
 app.use('/api',       require('./routes/api'));

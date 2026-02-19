@@ -20,9 +20,18 @@
  * be used outside of local development.
  */
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { getUserById } = require('../db');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'xflix_super_secret_change_me_in_production';
+// Generate a random secret if none provided — survives the process lifetime
+// but rotates on restart (forces re-login). This is intentional: it avoids
+// shipping a hardcoded secret while still working out-of-the-box.
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  const generated = crypto.randomBytes(64).toString('hex');
+  console.warn('  ⚠️  JWT_SECRET non défini — clé aléatoire générée (les sessions expireront au redémarrage).');
+  console.warn('  ⚠️  Définissez JWT_SECRET dans .env pour des sessions persistantes.');
+  return generated;
+})();
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
 
 function signToken(payload) {
@@ -75,4 +84,4 @@ function requireAdmin(req, res, next) {
   });
 }
 
-module.exports = { signToken, verifyToken, optionalAuth, requireAuth, requireAdmin, JWT_SECRET };
+module.exports = { signToken, verifyToken, optionalAuth, requireAuth, requireAdmin };

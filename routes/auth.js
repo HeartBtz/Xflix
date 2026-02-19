@@ -39,6 +39,9 @@ router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body || {};
     if (!username || !email || !password) return res.status(400).json({ error: 'username, email, password required' });
+    if (typeof username !== 'string' || username.length < 2 || username.length > 50) return res.status(400).json({ error: 'Username must be 2-50 characters' });
+    if (!/^[a-zA-Z0-9_\-. àâäéèêëïîôùûüÿçÀÂÄÉÈÊËÏÎÔÙÛÜŸÇ]+$/.test(username)) return res.status(400).json({ error: 'Username contains invalid characters' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email format' });
     if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
 
     // Check if registration is open or if this is the first user (becomes admin)
@@ -58,7 +61,7 @@ router.post('/register', async (req, res) => {
     res.status(201).json({ token, user: { id, username, email: email.toLowerCase(), role } });
   } catch(e) {
     if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Username or email already in use' });
-    res.status(500).json({ error: e.message });
+    console.error('[AUTH]', e.message); res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -77,7 +80,7 @@ router.post('/login', async (req, res) => {
     await updateLastLogin(user.id);
     const token = signToken({ id: user.id, username: user.username, role: user.role });
     res.json({ token, user: { id: user.id, username: user.username, email: user.email, role: user.role, avatar: user.avatar } });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[AUTH]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ── Me (profile) ─────────────────────────────────────────────── */
@@ -87,7 +90,7 @@ router.get('/me', requireAuth, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     const { password_hash, reset_token, reset_expires, ...safe } = user;
     res.json(safe);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[AUTH]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ── Change password (authenticated) ────────────────────────────── */
@@ -104,7 +107,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
     const hash = await bcrypt.hash(newPassword, 12);
     await clearResetToken(req.user.id, hash);
     res.json({ message: 'Password updated' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[AUTH]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ── Forgot password ──────────────────────────────────────────── */
@@ -128,12 +131,12 @@ router.post('/forgot-password', async (req, res) => {
       await sendPasswordReset(user.email, user.username, resetUrl);
     } catch(mailErr) {
       console.error('[MAIL ERROR]', mailErr.message);
-      // Fallback: return the URL in response (for environments without SMTP)
-      return res.json({ message: 'SMTP not configured — reset link (dev only):', resetUrl });
+      // Log the URL server-side for dev recovery — never expose to client
+      console.info('[DEV] Reset URL:', resetUrl);
     }
 
     res.json({ message: 'If the email exists, a reset link has been sent.' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[AUTH]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ── Reset password ────────────────────────────────────────────── */
@@ -149,7 +152,7 @@ router.post('/reset-password', async (req, res) => {
     const hash = await bcrypt.hash(newPassword, 12);
     await clearResetToken(user.id, hash);
     res.json({ message: 'Password reset successfully. You can now log in.' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[AUTH]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ── Public config (registration open?) ─────────────────────────── */
@@ -161,7 +164,7 @@ router.get('/config', async (req, res) => {
       allow_registration: allowReg !== 'false',
       has_users: cnt > 0,
     });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[AUTH]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ── Update profile (authenticated) ─────────────────────────────── */
@@ -183,7 +186,7 @@ router.put('/profile', requireAuth, async (req, res) => {
     const user = await getUserById(req.user.id);
     const { password_hash, reset_token, reset_expires, ...safe } = user;
     res.json(safe);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[AUTH]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 module.exports = router;

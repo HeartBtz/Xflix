@@ -26,6 +26,7 @@
  */
 const express = require('express');
 const router = express.Router();
+const { pool } = require('../db');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 
 /* ══════════════════════════════════════════════════════════════════
@@ -54,15 +55,16 @@ router.get('/comments/:mediaId', optionalAuth, async (req, res) => {
       [mediaId, limit, offset]
     );
     res.json({ data: rows, total, page, limit });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /social/comments/:mediaId — auth required
 router.post('/comments/:mediaId', requireAuth, async (req, res) => {
   try {
     const mediaId = Number(req.params.mediaId);
-    const { content } = req.body || {};
-    if (!content?.trim()) return res.status(400).json({ error: 'content required' });
+    const { content: rawContent } = req.body || {};
+    const content = rawContent?.trim();
+    if (!content) return res.status(400).json({ error: 'content required' });
     if (content.length > 2000) return res.status(400).json({ error: 'Comment too long (max 2000 chars)' });
 
     // Verify media exists
@@ -71,7 +73,7 @@ router.post('/comments/:mediaId', requireAuth, async (req, res) => {
 
     const [result] = await pool.query(
       'INSERT INTO comments (user_id, media_id, content) VALUES (?, ?, ?)',
-      [req.user.id, mediaId, content.trim()]
+      [req.user.id, mediaId, content]
     );
 
     const [[comment]] = await pool.query(
@@ -82,15 +84,16 @@ router.post('/comments/:mediaId', requireAuth, async (req, res) => {
       [result.insertId]
     );
     res.status(201).json(comment);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // PATCH /social/comments/:id — edit own comment (or admin)
 router.patch('/comments/:id', requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { content } = req.body || {};
-    if (!content?.trim()) return res.status(400).json({ error: 'content required' });
+    const { content: rawContent } = req.body || {};
+    const content = rawContent?.trim();
+    if (!content) return res.status(400).json({ error: 'content required' });
     if (content.length > 2000) return res.status(400).json({ error: 'Comment too long' });
 
     const [[comment]] = await pool.query('SELECT * FROM comments WHERE id = ?', [id]);
@@ -99,9 +102,9 @@ router.patch('/comments/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Not allowed' });
     }
 
-    await pool.query('UPDATE comments SET content = ? WHERE id = ?', [content.trim(), id]);
-    res.json({ id, content: content.trim() });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    await pool.query('UPDATE comments SET content = ? WHERE id = ?', [content, id]);
+    res.json({ id, content });
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // DELETE /social/comments/:id — delete own comment (or admin)
@@ -115,7 +118,7 @@ router.delete('/comments/:id', requireAuth, async (req, res) => {
     }
     await pool.query('DELETE FROM comments WHERE id = ?', [id]);
     res.json({ message: 'Deleted' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -140,7 +143,7 @@ router.get('/reactions/:mediaId', optionalAuth, async (req, res) => {
       userReaction = row?.type || null;
     }
     res.json({ likes: counts.likes || 0, dislikes: counts.dislikes || 0, userReaction });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /social/reactions/:mediaId — add or toggle reaction
@@ -180,7 +183,7 @@ router.post('/reactions/:mediaId', requireAuth, async (req, res) => {
       [req.user.id, mediaId]
     );
     res.json({ likes: counts.likes || 0, dislikes: counts.dislikes || 0, userReaction: row?.type || null });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -205,7 +208,7 @@ router.get('/favorites', requireAuth, async (req, res) => {
     const [[{ total }]] = await pool.query(q.replace(/SELECT m\.\*.*WHERE/, 'SELECT COUNT(*) as total FROM user_favorites uf JOIN media m ON m.id = uf.media_id WHERE'), params);
     const [rows] = await pool.query(`${q} ORDER BY uf.created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
     res.json({ data: rows, total, page, limit });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /social/favorites/:mediaId — toggle user favorite
@@ -223,7 +226,7 @@ router.post('/favorites/:mediaId', requireAuth, async (req, res) => {
       await pool.query('INSERT INTO user_favorites (user_id, media_id) VALUES (?, ?)', [req.user.id, mediaId]);
       res.json({ favorited: true });
     }
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /social/favorites/:mediaId — check if user favorited
@@ -234,7 +237,7 @@ router.get('/favorites/:mediaId', requireAuth, async (req, res) => {
       [req.user.id, Number(req.params.mediaId)]
     );
     res.json({ favorited: !!row });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[SOCIAL]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 module.exports = router;

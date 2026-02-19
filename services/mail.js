@@ -31,7 +31,7 @@ async function createTransport() {
       user: settings.smtp_user,
       pass: settings.smtp_pass,
     },
-    tls: { rejectUnauthorized: false },
+    tls: { rejectUnauthorized: settings.smtp_secure === 'true' },
   });
 }
 

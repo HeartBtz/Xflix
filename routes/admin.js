@@ -52,7 +52,7 @@ const router   = express.Router();
 const path     = require('path');
 const fs       = require('fs');
 const crypto   = require('crypto');
-const { pool, getSetting, setSetting, listUsers, updateUserRole, deleteUser, countAdmins, updatePerformerCounts } = require('../db');
+const { pool, getSetting, setSetting, updateUserRole, deleteUser, countAdmins, updatePerformerCounts } = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { testSmtp } = require('../services/mail');
 const gpuDetect = require('../services/gpu-detect');
@@ -80,7 +80,7 @@ router.get('/stats', async (req, res) => {
       comments:  r3[0][0].cnt,
       reactions: r4[0][0].cnt,
     });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -99,7 +99,7 @@ router.get('/users', async (req, res) => {
     const [[{ total }]] = await pool.query('SELECT COUNT(*) as total FROM users' + (search ? ' WHERE username LIKE ? OR email LIKE ?' : ''), params);
     const [rows] = await pool.query(`${q} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
     res.json({ data: rows, total, page, limit });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 router.patch('/users/:id/role', async (req, res) => {
@@ -114,7 +114,7 @@ router.patch('/users/:id/role', async (req, res) => {
     }
     await updateUserRole(id, role);
     res.json({ id, role });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 router.delete('/users/:id', async (req, res) => {
@@ -127,7 +127,7 @@ router.delete('/users/:id', async (req, res) => {
     if (target.role === 'admin' && n <= 1) return res.status(400).json({ error: 'Last admin cannot be deleted' });
     await deleteUser(id);
     res.json({ message: 'User deleted' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -141,7 +141,7 @@ router.get('/settings', async (req, res) => {
     // Never expose raw password — mask it
     if (s.smtp_pass) s.smtp_pass = '••••••••';
     res.json(s);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 router.put('/settings', async (req, res) => {
@@ -156,7 +156,7 @@ router.put('/settings', async (req, res) => {
       }
     }
     res.json({ message: 'Settings saved' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 router.post('/settings/test-smtp', async (req, res) => {
@@ -294,7 +294,7 @@ router.get('/media', async (req, res) => {
        WHERE ${whereStr} ORDER BY m.file_path LIMIT ? OFFSET ?`,
       [...params, Number(limit), off]);
     res.json({ data: rows, total, page: Number(page), limit: Number(limit) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -457,7 +457,7 @@ router.delete('/duplicates/:id', async (req, res) => {
     const thumbPath = path.join(THUMB_DIR, thumbName);
     try { await fs.promises.unlink(thumbPath); } catch(_) {}
     res.json({ message: 'Deleted', id });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -700,7 +700,7 @@ router.delete('/media/:id', async (req, res) => {
     const thumbPath = path.join(THUMB_DIR, thumbName);
     try { await fs.promises.unlink(thumbPath); } catch(_) {}
     res.json({ message: 'Deleted', id });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -712,7 +712,7 @@ router.get('/encode/capabilities', async (req, res) => {
   try {
     const caps = await gpuDetect.detectAll(req.query.refresh === '1');
     res.json(caps);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /admin/encode/status — queue status with active jobs
@@ -720,7 +720,7 @@ router.get('/encode/status', async (req, res) => {
   try {
     const status = await encoder.getQueueStatus();
     res.json(status);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /admin/encode/history — job history with pagination
@@ -730,7 +730,7 @@ router.get('/encode/history', async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const history = await encoder.getJobHistory(page, limit);
     res.json(history);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /admin/encode/enqueue — add jobs to queue
@@ -742,7 +742,7 @@ router.post('/encode/enqueue', async (req, res) => {
     if (!presetId) return res.status(400).json({ error: 'No preset selected' });
     const jobIds = await encoder.enqueueJobs(mediaIds, { presetId, quality, replaceOriginal });
     res.json({ message: `${jobIds.length} job(s) enqueued`, jobIds });
-  } catch(e) { console.error('[encode:route] enqueue error:', e.message); res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[encode:route] enqueue error:', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /admin/encode/cancel/:id — cancel a single job
@@ -750,7 +750,7 @@ router.post('/encode/cancel/:id', async (req, res) => {
   try {
     await encoder.cancelJob(Number(req.params.id));
     res.json({ message: 'Cancelled' });
-  } catch(e) { console.error(`[encode:route] cancel #${req.params.id} error:`, e.message); res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error(`[encode:route] cancel #${req.params.id} error:`, e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /admin/encode/cancel-all — cancel all jobs
@@ -758,7 +758,7 @@ router.post('/encode/cancel-all', async (req, res) => {
   try {
     await encoder.cancelAll();
     res.json({ message: 'All jobs cancelled' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /admin/encode/retry/:id — retry a failed job
@@ -766,7 +766,7 @@ router.post('/encode/retry/:id', async (req, res) => {
   try {
     await encoder.retryJob(Number(req.params.id));
     res.json({ message: 'Retried' });
-  } catch(e) { console.error(`[encode:route] retry #${req.params.id} error:`, e.message); res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error(`[encode:route] retry #${req.params.id} error:`, e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // DELETE /admin/encode/job/:id — delete a job record
@@ -774,7 +774,7 @@ router.delete('/encode/job/:id', async (req, res) => {
   try {
     await encoder.deleteJob(Number(req.params.id));
     res.json({ message: 'Deleted' });
-  } catch(e) { console.error(`[encode:route] delete #${req.params.id} error:`, e.message); res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error(`[encode:route] delete #${req.params.id} error:`, e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /admin/encode/workers — set max workers
@@ -783,24 +783,34 @@ router.post('/encode/workers', async (req, res) => {
     const { maxWorkers } = req.body || {};
     encoder.setMaxWorkers(Number(maxWorkers) || 2);
     res.json({ maxWorkers: encoder.getMaxWorkers() });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /admin/encode/videos — list videos eligible for encoding with filters
 router.get('/encode/videos', async (req, res) => {
   try {
-    const { performer_id, codec, min_size, max_size, min_duration, max_duration, page = 1, limit = 60, q = '' } = req.query;
+    const { performer_id, codec, min_size, max_size, min_duration, max_duration, page = 1, limit = 60, q = '', sort = 'size_desc' } = req.query;
     const off = (Number(page) - 1) * Number(limit);
     const where = ["m.type = 'video'"];
     const params = [];
 
     if (performer_id) { where.push('m.performer_id = ?'); params.push(Number(performer_id)); }
-    if (codec) { where.push('m.codec = ?'); params.push(codec); }
+    if (codec === 'unknown') { where.push('m.codec IS NULL'); }
+    else if (codec) { where.push('m.codec = ?'); params.push(codec); }
     if (min_size) { where.push('m.size >= ?'); params.push(Number(min_size)); }
     if (max_size) { where.push('m.size <= ?'); params.push(Number(max_size)); }
     if (min_duration) { where.push('m.duration >= ?'); params.push(Number(min_duration)); }
     if (max_duration) { where.push('m.duration <= ?'); params.push(Number(max_duration)); }
     if (q) { where.push('m.file_path LIKE ?'); params.push(`%${q}%`); }
+
+    // Sort mapping
+    const sortMap = {
+      'size_desc': 'm.size DESC', 'size_asc': 'm.size ASC',
+      'name_asc': 'm.filename ASC, m.file_path ASC', 'name_desc': 'm.filename DESC, m.file_path DESC',
+      'duration_desc': 'm.duration DESC', 'duration_asc': 'm.duration ASC',
+      'bitrate_desc': 'm.bitrate DESC', 'bitrate_asc': 'm.bitrate ASC',
+    };
+    const orderBy = sortMap[sort] || 'm.size DESC';
 
     const whereStr = where.join(' AND ');
     const [[{ total }]] = await pool.query(`SELECT COUNT(*) as total FROM media m WHERE ${whereStr}`, params);
@@ -809,7 +819,7 @@ router.get('/encode/videos', async (req, res) => {
               p.name as performer_name
        FROM media m JOIN performers p ON p.id = m.performer_id
        WHERE ${whereStr}
-       ORDER BY m.size DESC
+       ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`,
       [...params, Number(limit), off]
     );
@@ -828,7 +838,7 @@ router.get('/encode/videos', async (req, res) => {
     }
 
     res.json({ data: rows, total, page: Number(page), limit: Number(limit) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /admin/encode/codec-stats — breakdown of videos by codec
@@ -840,7 +850,22 @@ router.get('/encode/codec-stats', async (req, res) => {
        FROM media WHERE type='video' GROUP BY codec ORDER BY count DESC`
     );
     res.json(rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
+});
+
+// POST /admin/encode/enrich-codecs — re-run ffprobe on videos missing codec info
+router.post('/encode/enrich-codecs', async (req, res) => {
+  try {
+    const [[{ cnt }]] = await pool.query("SELECT COUNT(*) as cnt FROM media WHERE type='video' AND (codec IS NULL OR duration IS NULL)");
+    if (cnt === 0) return res.json({ message: 'All videos already have codec info', enriched: 0 });
+
+    // Run enrichment in background
+    scanner.enrichVideoMeta(4).then(() => {
+      console.log('[encode:enrich] Codec enrichment completed');
+    }).catch(e => console.error('[encode:enrich] Error:', e.message));
+
+    res.json({ message: `Enriching ${cnt} video(s) in background…`, pending: cnt });
+  } catch(e) { console.error('[ADMIN]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // SSE /admin/encode/events — real-time encode events stream

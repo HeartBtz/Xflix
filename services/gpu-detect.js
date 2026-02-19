@@ -116,6 +116,56 @@ async function detectAll(force = false) {
   // Build available presets
   const presets = [];
 
+  // Multi-GPU group presets (auto-distribute across GPUs)
+  if (nvidia.length > 1) {
+    if (encoderSet.has('hevc_nvenc')) {
+      presets.push({
+        id: 'nvidia_h265',
+        label: `H.265 NVENC — Auto (${nvidia.length} GPUs)`,
+        encoder: 'hevc_nvenc',
+        codec: 'h265',
+        type: 'nvidia_group',
+        gpuCount: nvidia.length,
+        device: `${nvidia.length} GPUs`,
+      });
+    }
+    if (encoderSet.has('av1_nvenc')) {
+      presets.push({
+        id: 'nvidia_av1',
+        label: `AV1 NVENC — Auto (${nvidia.length} GPUs)`,
+        encoder: 'av1_nvenc',
+        codec: 'av1',
+        type: 'nvidia_group',
+        gpuCount: nvidia.length,
+        device: `${nvidia.length} GPUs`,
+      });
+    }
+  }
+  if (vaapi.length > 1) {
+    if (encoderSet.has('hevc_vaapi')) {
+      presets.push({
+        id: 'vaapi_h265',
+        label: `H.265 VA-API — Auto (${vaapi.length} devices)`,
+        encoder: 'hevc_vaapi',
+        codec: 'h265',
+        type: 'vaapi_group',
+        deviceCount: vaapi.length,
+        device: `${vaapi.length} VA-API`,
+      });
+    }
+    if (encoderSet.has('av1_vaapi')) {
+      presets.push({
+        id: 'vaapi_av1',
+        label: `AV1 VA-API — Auto (${vaapi.length} devices)`,
+        encoder: 'av1_vaapi',
+        codec: 'av1',
+        type: 'vaapi_group',
+        deviceCount: vaapi.length,
+        device: `${vaapi.length} VA-API`,
+      });
+    }
+  }
+
   // NVIDIA NVENC presets (one per GPU)
   for (const gpu of nvidia) {
     if (encoderSet.has('hevc_nvenc')) {

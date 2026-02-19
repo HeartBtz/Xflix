@@ -935,6 +935,9 @@
 
     document.getElementById('encLoadVideosBtn').addEventListener('click', () => { encVideoPage = 1; loadEncodeVideos(); });
     document.getElementById('encFilterSearch').addEventListener('keydown', e => { if (e.key === 'Enter') { encVideoPage = 1; loadEncodeVideos(); } });
+    document.getElementById('encFilterPerformer').addEventListener('change', () => { encVideoPage = 1; loadEncodeVideos(); });
+    document.getElementById('encFilterCodec').addEventListener('change', () => { encVideoPage = 1; loadEncodeVideos(); });
+    document.getElementById('encFilterSort').addEventListener('change', () => { encVideoPage = 1; loadEncodeVideos(); });
 
     document.getElementById('encSelectAllBtn').addEventListener('click', () => {
       document.querySelectorAll('#encVideoGrid .enc-vcard-cb').forEach(cb => {
@@ -955,6 +958,24 @@
 
     document.getElementById('encClearLogsBtn').addEventListener('click', () => {
       document.getElementById('encLogs').innerHTML = '';
+    });
+
+    document.getElementById('encEnrichCodecsBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('encEnrichCodecsBtn');
+      btn.disabled = true; btn.textContent = '⏳ Analyse en cours…';
+      try {
+        const res = await apiFetch('/admin/encode/enrich-codecs', { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message);
+        // Refresh codec stats after a delay
+        setTimeout(async () => {
+          await loadCodecStats();
+          btn.disabled = false; btn.textContent = '🔄 Ré-analyser les codecs inconnus';
+        }, 5000);
+      } catch(e) {
+        alert('Erreur : ' + e.message);
+        btn.disabled = false; btn.textContent = '🔄 Ré-analyser les codecs inconnus';
+      }
     });
   }
 
@@ -1038,6 +1059,18 @@
           <div class="cc-size">${fmtSize(s.total_size)}</div>
         </div>
       `).join('');
+
+      // Populate codec filter from actual data
+      const sel = document.getElementById('encFilterCodec');
+      const currentVal = sel.value;
+      sel.innerHTML = '<option value="">Tous les codecs</option>';
+      for (const s of stats) {
+        const opt = document.createElement('option');
+        opt.value = s.codec === 'unknown' ? 'unknown' : s.codec;
+        opt.textContent = `${s.codec} (${s.count})`;
+        sel.appendChild(opt);
+      }
+      sel.value = currentVal;
     } catch {}
   }
 
@@ -1214,9 +1247,11 @@
     });
     const performer = document.getElementById('encFilterPerformer').value;
     const codec = document.getElementById('encFilterCodec').value;
+    const sort = document.getElementById('encFilterSort').value;
     const q = document.getElementById('encFilterSearch').value.trim();
     if (performer) params.set('performer_id', performer);
     if (codec) params.set('codec', codec);
+    if (sort) params.set('sort', sort);
     if (q) params.set('q', q);
 
     try {
@@ -1313,7 +1348,7 @@
     const quality = document.getElementById('encQuality').value;
     const replaceOriginal = document.getElementById('encReplace').checked;
 
-    if (replaceOriginal && !confirm(`⚠️ ${mediaIds.length} vidéo(s) seront ré-encodées et les originaux remplacés. Continuer ?`)) return;
+    if (replaceOriginal && mediaIds.length > 10 && !confirm(`⚠️ ${mediaIds.length} vidéo(s) seront ré-encodées et les originaux remplacés. Continuer ?`)) return;
 
     try {
       const res = await apiFetch('/admin/encode/enqueue', {

@@ -189,7 +189,7 @@ async function loadPerformers(params = {}) {
     $('sectionTitle').textContent = params.q ? `Résultats pour « ${params.q} »` : (params.favorite ? '⭐ Performeuses favorites' : 'Toutes les performeuses');
     renderPerformers(data);
   } catch(e) {
-    grid.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur de chargement</h3><p>${e.message}</p></div>`;
+    grid.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur de chargement</h3><p>${escapeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -366,7 +366,7 @@ async function loadFavoritesPage() {
       renderPerformersInGrid(data, $('favPerfGrid'));
     }
   } catch(e) {
-    container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur</h3><p>${e.message}</p></div>`;
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur</h3><p>${escapeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -542,7 +542,7 @@ async function loadVideos(page = 1, append = false) {
     if (sentinel) sentinel.classList.toggle('hidden', page >= totalPages);
     renderPagination('videoPagination', page, totalPages, p => loadVideos(p));
   } catch(e) {
-    if (!append) grid.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur</h3><p>${e.message}</p></div>`;
+    if (!append) grid.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur</h3><p>${escapeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -648,7 +648,7 @@ async function loadPhotos(page = 1) {
     renderPhotoCards(data, grid);
     renderPagination('photoPagination', page, Math.ceil(total / state.photoLimit), p => loadPhotos(p));
   } catch(e) {
-    grid.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur</h3><p>${e.message}</p></div>`;
+    grid.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><h3>Erreur</h3><p>${escapeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -1952,7 +1952,7 @@ async function loadNewPage() {
       renderPhotoCards(data, grid);
     }
   } catch(e) {
-    grid.innerHTML = `<div class="empty-state"><p>${e.message}</p></div>`;
+    grid.innerHTML = `<div class="empty-state"><p>${escapeHtml(e.message)}</p></div>`;
   }
 }
 

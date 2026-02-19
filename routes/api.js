@@ -47,8 +47,12 @@ const { pool, clearAll, togglePerformerFavorite, toggleMediaFavorite, incrementV
         getTagsForMediaBatch, getOrCreateTag, setMediaTags } = require('../db');
 const { scanDirectory, getProgress, cancelScan, generateVideoThumb, generatePhotoThumb, enrichDurations,
         THUMB_DIR } = require('../scanner');
+const { requireAdmin } = require('../middleware/auth');
 
 const MEDIA_DIR = process.env.MEDIA_DIR || '/home/coder/OF';
+
+/** Safe numeric coercion — returns null for NaN/undefined, allowing callers to skip the filter */
+function safeInt(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
 
 /**
  * Enrich an array of media rows with their tags.
@@ -77,8 +81,8 @@ router.get('/performers', async (req, res) => {
     const params = [];
 
     if (q) { query += ` AND p.name LIKE ?`; params.push(`%${q}%`); }
-    if (minVideos) { query += ` AND p.video_count >= ?`; params.push(Number(minVideos)); }
-    if (minPhotos) { query += ` AND p.photo_count >= ?`; params.push(Number(minPhotos)); }
+    if (minVideos) { query += ` AND p.video_count >= ?`; params.push(safeInt(minVideos)); }
+    if (minPhotos) { query += ` AND p.photo_count >= ?`; params.push(safeInt(minPhotos)); }
     if (favorite === '1') { query += ` AND p.favorite = 1`; }
 
     // Separate count query (avoids multi-line regex issues)
@@ -92,11 +96,11 @@ router.get('/performers', async (req, res) => {
 
     let dataQuery = `${query} ORDER BY p.${sortCol} ${sortOrder}`;
     const dataParams = [...params];
-    if (lim) { dataQuery += ` LIMIT ?`; dataParams.push(Number(lim)); if (off) { dataQuery += ` OFFSET ?`; dataParams.push(Number(off)); } }
+    if (lim) { dataQuery += ` LIMIT ?`; dataParams.push(Math.min(Number(lim) || 50, 500)); if (off) { dataQuery += ` OFFSET ?`; dataParams.push(Number(off) || 0); } }
 
     const [performers] = await pool.query(dataQuery, dataParams);
     res.json({ data: performers, total });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/performers/:name
@@ -111,7 +115,7 @@ router.get('/performers/:name', async (req, res) => {
       [p.id]
     );
     res.json({ ...p, totalViews: Number(stats.totalViews), totalDuration: Number(stats.totalDuration) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/performers/:id/favorite
@@ -120,7 +124,7 @@ router.post('/performers/:id/favorite', async (req, res) => {
     const result = await togglePerformerFavorite(Number(req.params.id));
     if (!result) return res.status(404).json({ error: 'Performer not found' });
     res.json(result);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Media ──────────────────────────────────────────────────── */
@@ -132,29 +136,30 @@ router.get('/performers/:name/videos', async (req, res) => {
     if (!pRows.length) return res.status(404).json({ error: 'Performer not found' });
     const pId = pRows[0].id;
 
-    const { sort = 'filename', order = 'asc', minSize, maxSize, minDuration, maxDuration, favorite, tag, page = 1, limit = 50 } = req.query;
+    const { sort = 'filename', order = 'asc', minSize, maxSize, minDuration, maxDuration, favorite, tag, page = 1, limit: rawLim = 50 } = req.query;
+    const limit = Math.min(Number(rawLim) || 50, 200);
     const allowed = ['filename', 'size', 'duration', 'created_at', 'view_count', 'favorite'];
     const sortCol = allowed.includes(sort) ? sort : 'filename';
     const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
-    const offset = (Number(page) - 1) * Number(limit);
+    const offset = (Number(page) - 1) * limit;
 
     let query = `SELECT * FROM media WHERE performer_id = ? AND type = 'video'`;
     const params = [pId];
 
-    if (minSize)    { query += ` AND size >= ?`;     params.push(Number(minSize)); }
-    if (maxSize)    { query += ` AND size <= ?`;     params.push(Number(maxSize)); }
-    if (minDuration){ query += ` AND duration >= ?`; params.push(Number(minDuration)); }
-    if (maxDuration){ query += ` AND duration <= ?`; params.push(Number(maxDuration)); }
+    if (minSize)    { query += ` AND size >= ?`;     params.push(safeInt(minSize)); }
+    if (maxSize)    { query += ` AND size <= ?`;     params.push(safeInt(maxSize)); }
+    if (minDuration){ query += ` AND duration >= ?`; params.push(safeInt(minDuration)); }
+    if (maxDuration){ query += ` AND duration <= ?`; params.push(safeInt(maxDuration)); }
     if (favorite === '1') { query += ` AND favorite = 1`; }
     if (tag)        { query += ` AND id IN (SELECT mt.media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE t.name = ?)`; params.push(tag); }
 
     const [countRows] = await pool.query(query.replace('SELECT *', 'SELECT COUNT(*) as cnt'), params);
     const total = countRows[0].cnt;
 
-    const [rawVideos] = await pool.query(`${query} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`, [...params, Number(limit), offset]);
+    const [rawVideos] = await pool.query(`${query} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`, [...params, limit, offset]);
     const videos = await withTags(rawVideos);
-    res.json({ data: videos, total, page: Number(page), limit: Number(limit) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    res.json({ data: videos, total, page: Number(page), limit });
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/performers/:name/photos
@@ -164,11 +169,12 @@ router.get('/performers/:name/photos', async (req, res) => {
     if (!pRows.length) return res.status(404).json({ error: 'Performer not found' });
     const pId = pRows[0].id;
 
-    const { sort = 'filename', order = 'asc', page = 1, limit = 100, favorite } = req.query;
+    const { sort = 'filename', order = 'asc', page = 1, limit: rawLim = 100, favorite } = req.query;
+    const limit = Math.min(Number(rawLim) || 100, 500);
     const allowed = ['filename', 'size', 'created_at', 'view_count', 'favorite'];
     const sortCol = allowed.includes(sort) ? sort : 'filename';
     const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
-    const offset = (Number(page) - 1) * Number(limit);
+    const offset = (Number(page) - 1) * limit;
 
     let query = `SELECT * FROM media WHERE performer_id = ? AND type = 'photo'`;
     const params = [pId];
@@ -177,9 +183,9 @@ router.get('/performers/:name/photos', async (req, res) => {
     const [countRows] = await pool.query(query.replace('SELECT *', 'SELECT COUNT(*) as cnt'), params);
     const total = countRows[0].cnt;
 
-    const [photos] = await pool.query(`${query} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`, [...params, Number(limit), offset]);
-    res.json({ data: photos, total, page: Number(page), limit: Number(limit) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const [photos] = await pool.query(`${query} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`, [...params, limit, offset]);
+    res.json({ data: photos, total, page: Number(page), limit });
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/media/:id
@@ -194,7 +200,7 @@ router.get('/media/:id', async (req, res) => {
     const tagMap = await getTagsForMediaBatch([m.id]);
     m.tags = tagMap.get(m.id) || [];
     res.json(m);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // GET /api/media/:id/related — random videos from the same performer
@@ -211,7 +217,7 @@ router.get('/media/:id/related', async (req, res) => {
       [base[0].performer_id, Number(req.params.id), limit]
     );
     res.json({ data: rows });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/media/:id/favorite
@@ -220,7 +226,7 @@ router.post('/media/:id/favorite', async (req, res) => {
     const result = await toggleMediaFavorite(Number(req.params.id));
     if (!result) return res.status(404).json({ error: 'Media not found' });
     res.json(result);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/media/:id/view
@@ -228,7 +234,7 @@ router.post('/media/:id/view', async (req, res) => {
   try {
     await incrementViewCount(Number(req.params.id));
     res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 /* ─── Tags ─────────────────────────────────────────────────── */
 
@@ -260,7 +266,7 @@ router.get('/tags', async (req, res) => {
       `);
     }
     res.json({ data: rows });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Nouveautés ─────────────────────────────────────────── */
@@ -279,35 +285,36 @@ router.get('/new', async (req, res) => {
     const [rows] = await pool.query(query, params);
     const data = await withTags(rows);
     res.json({ data });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 /* ─── Global Search ──────────────────────────────────────────── */
 
 router.get('/search', async (req, res) => {
   try {
-    const { q = '', type, minSize, maxSize, minDuration, maxDuration, favorite, sort = 'filename', order = 'asc', page = 1, limit = 60 } = req.query;
+    const { q = '', type, minSize, maxSize, minDuration, maxDuration, favorite, sort = 'filename', order = 'asc', page = 1, limit: rawLim = 60 } = req.query;
+    const limit = Math.min(Number(rawLim) || 60, 200);
     const allowed = ['filename', 'size', 'duration', 'created_at', 'view_count'];
     const sortCol = allowed.includes(sort) ? sort : 'filename';
     const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
-    const offset = (Number(page) - 1) * Number(limit);
+    const offset = (Number(page) - 1) * limit;
 
     let query = `SELECT m.*, p.name AS performer_name FROM media m JOIN performers p ON p.id = m.performer_id WHERE 1=1`;
     const params = [];
 
     if (q) { query += ` AND (m.filename LIKE ? OR p.name LIKE ?)`; params.push(`%${q}%`, `%${q}%`); }
     if (type && ['video', 'photo'].includes(type)) { query += ` AND m.type = ?`; params.push(type); }
-    if (minSize) { query += ` AND m.size >= ?`; params.push(Number(minSize)); }
-    if (maxSize) { query += ` AND m.size <= ?`; params.push(Number(maxSize)); }
-    if (minDuration) { query += ` AND m.duration >= ?`; params.push(Number(minDuration)); }
-    if (maxDuration) { query += ` AND m.duration <= ?`; params.push(Number(maxDuration)); }
+    if (minSize) { query += ` AND m.size >= ?`; params.push(safeInt(minSize)); }
+    if (maxSize) { query += ` AND m.size <= ?`; params.push(safeInt(maxSize)); }
+    if (minDuration) { query += ` AND m.duration >= ?`; params.push(safeInt(minDuration)); }
+    if (maxDuration) { query += ` AND m.duration <= ?`; params.push(safeInt(maxDuration)); }
     if (favorite === '1') { query += ` AND m.favorite = 1`; }
 
     const [countRows] = await pool.query(query.replace('SELECT m.*, p.name AS performer_name', 'SELECT COUNT(*) as cnt'), params);
     const total = countRows[0].cnt;
 
-    const [items] = await pool.query(`${query} ORDER BY m.${sortCol} ${sortOrder} LIMIT ? OFFSET ?`, [...params, Number(limit), offset]);
-    res.json({ data: items, total, page: Number(page), limit: Number(limit) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const [items] = await pool.query(`${query} ORDER BY m.${sortCol} ${sortOrder} LIMIT ? OFFSET ?`, [...params, limit, offset]);
+    res.json({ data: items, total, page: Number(page), limit });
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Random / Discover ──────────────────────────────────────── */
@@ -323,7 +330,7 @@ router.get('/random/videos', async (req, res) => {
       JOIN performers p ON p.id = m.performer_id
     `, [limit]);
     res.json({ data: videos });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 router.get('/random/photos', async (req, res) => {
@@ -336,7 +343,7 @@ router.get('/random/photos', async (req, res) => {
       JOIN performers p ON p.id = m.performer_id
     `, [limit]);
     res.json({ data: photos });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 router.get('/random/performer', async (req, res) => {
@@ -344,7 +351,7 @@ router.get('/random/performer', async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM performers ORDER BY RAND() LIMIT 1');
     if (!rows.length) return res.status(404).json({ error: 'No performers' });
     res.json(rows[0]);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Recently Viewed ────────────────────────────────────────── */
@@ -361,7 +368,7 @@ router.get('/recent', async (req, res) => {
     params.push(limit);
     const [rows] = await pool.query(query, params);
     res.json({ data: rows });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Most Viewed ────────────────────────────────────────────── */
@@ -378,7 +385,7 @@ router.get('/popular', async (req, res) => {
     params.push(limit);
     const [rows] = await pool.query(query, params);
     res.json({ data: rows });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Favorites ──────────────────────────────────────────────── */
@@ -387,7 +394,7 @@ router.get('/favorites', async (req, res) => {
   try {
     const type = req.query.type;
     const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 60;
+    const limit = Math.min(Number(req.query.limit) || 60, 200);
     const offset = (page - 1) * limit;
     let query = `SELECT m.*, p.name AS performer_name FROM media m
       JOIN performers p ON p.id = m.performer_id WHERE m.favorite = 1`;
@@ -397,7 +404,7 @@ router.get('/favorites', async (req, res) => {
     const total = countRows[0].cnt;
     const [rows] = await pool.query(`${query} ORDER BY m.created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
     res.json({ data: rows, total, page, limit });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Stats ──────────────────────────────────────────────────── */
@@ -429,14 +436,13 @@ router.get('/stats', async (req, res) => {
       totalSize:    Number(totalSize),
       favorites,    totalViews: Number(totalViews),
       favPerformers, totalDuration: Number(totalDuration),
-      mediaDir: MEDIA_DIR,
     });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Scan & Clear ───────────────────────────────────────────── */
 
-router.post('/scan', async (req, res) => {
+router.post('/scan', requireAdmin, async (req, res) => {
   const progress = getProgress();
   if (progress.running) return res.status(409).json({ error: 'Scan already in progress', progress });
 
@@ -462,24 +468,24 @@ router.get('/scan/progress', (req, res) => {
   res.json(getProgress());
 });
 
-router.post('/scan/cancel', (req, res) => {
+router.post('/scan/cancel', requireAdmin, (req, res) => {
   const cancelled = cancelScan();
   if (!cancelled) return res.status(400).json({ error: 'No scan running' });
   res.json({ message: 'Cancel requested' });
 });
 
-router.post('/clear', async (req, res) => {
+router.post('/clear', requireAdmin, async (req, res) => {
   try {
     const progress = getProgress();
     if (progress.running) return res.status(409).json({ error: 'Cannot clear while scan is running' });
     await clearAll();
     res.json({ message: 'Database cleared' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 /* ─── Thumbnail Generation ───────────────────────────────────── */
 
-router.post('/thumb/:id', async (req, res) => {
+router.post('/thumb/:id', requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM media WHERE id = ?', [Number(req.params.id)]);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
@@ -496,11 +502,11 @@ router.post('/thumb/:id', async (req, res) => {
 
     await updateThumb(media.id, thumbPath);
     res.json({ thumbPath });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // POST /api/thumb/:id/upload — accept a base64-encoded image as a custom thumbnail
-router.post('/thumb/:id/upload', async (req, res) => {
+router.post('/thumb/:id/upload', requireAdmin, async (req, res) => {
   try {
     const b64 = req.body?.data;
     if (!b64) return res.status(400).json({ error: '{ data: "<base64>" } required in body' });
@@ -519,7 +525,7 @@ router.post('/thumb/:id/upload', async (req, res) => {
       .toFile(thumbPath);
     await updateThumb(rows[0].id, thumbPath);
     res.json({ ok: true, thumbPath });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { console.error('[API]', e.message); res.status(500).json({ error: 'Internal server error' }); }
 });
 
 module.exports = router;

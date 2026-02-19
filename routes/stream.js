@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
+const contentDisposition = require('content-disposition');
 const { pool, updateThumb } = require('../db');
 const { generateVideoThumb, generatePhotoThumb } = require('../scanner');
 
@@ -192,7 +193,7 @@ router.get('/download/:id', async (req, res) => {
     if (!fs.existsSync(media.file_path)) return res.status(404).send('File not found on disk');
     const filename = path.basename(media.file_path);
     res.setHeader('Content-Type', media.mime_type || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '\\"')}"`);
+    res.setHeader('Content-Disposition', contentDisposition(filename, { type: 'attachment' }));
     res.setHeader('Content-Length', fs.statSync(media.file_path).size);
     fs.createReadStream(media.file_path, { highWaterMark: 256 * 1024 }).pipe(res);
   } catch(e) { res.status(500).send('Server error'); }

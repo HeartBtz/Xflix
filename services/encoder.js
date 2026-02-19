@@ -23,12 +23,76 @@ const ENCODE_DIR = path.resolve(__dirname, '../data/encoded');
 fs.mkdirSync(ENCODE_DIR, { recursive: true });
 
 /* ── In-memory state ─────────────────────────────────────── */
-const _listeners = new Set(); // Set<(event) => void>
-const _activeJobs = new Map(); // jobId → { process, cancelled }
+const _listeners = new Set();       // Set<(event) => void>
+const _activeJobs = new Map();      // jobId → { process, cancelled, deviceKey }
+const _dispatchedJobs = new Set();  // IDs currently dispatched (prevent race conditions)
+const _deviceUsage = new Map();     // deviceKey → number of active encodes
 
-// Max concurrent encode workers — auto-tuned later
+// Max concurrent encode workers
 let _maxWorkers = 2;
 let _running = 0;
+
+/* ── Device tracking helpers ───────────────────────────── */
+function getDeviceKey(preset) {
+  if (!preset) return 'cpu';
+  if (preset.type === 'nvidia') return `nvidia_${preset.gpuIndex}`;
+  if (preset.type === 'vaapi') return `vaapi_${preset.renderDevice}`;
+  if (preset.type === 'qsv') return 'qsv';
+  return 'cpu';
+}
+
+function acquireDevice(deviceKey) {
+  _deviceUsage.set(deviceKey, (_deviceUsage.get(deviceKey) || 0) + 1);
+}
+
+function releaseDevice(deviceKey) {
+  if (deviceKey) {
+    _deviceUsage.set(deviceKey, Math.max(0, (_deviceUsage.get(deviceKey) || 1) - 1));
+  }
+}
+
+function isDeviceAvailable(preset) {
+  const key = getDeviceKey(preset);
+  const usage = _deviceUsage.get(key) || 0;
+  // GPU encoders: max 2 concurrent per device (NVENC consumer limit is ~5 sessions)
+  if (['nvidia', 'vaapi', 'qsv'].includes(preset.type)) return usage < 2;
+  return true; // CPU limited by global _maxWorkers
+}
+
+/**
+ * Resolve a preset ID (possibly a group like "nvidia_h265") to a specific device preset.
+ * For groups, picks the least-busy available device.
+ */
+async function resolvePreset(presetId, caps) {
+  const preset = caps.presets.find(p => p.id === presetId);
+  if (!preset) return null;
+
+  // Not a group → return directly
+  if (preset.type !== 'nvidia_group' && preset.type !== 'vaapi_group') return preset;
+
+  // Group → pick least-busy matching device
+  const matchType = preset.type === 'nvidia_group' ? 'nvidia' : 'vaapi';
+  const candidates = caps.presets.filter(p => p.type === matchType && p.encoder === preset.encoder);
+
+  let best = null, bestUsage = Infinity;
+  for (const c of candidates) {
+    const key = getDeviceKey(c);
+    const usage = _deviceUsage.get(key) || 0;
+    if (isDeviceAvailable(c) && usage < bestUsage) {
+      bestUsage = usage;
+      best = c;
+    }
+  }
+  return best;
+}
+
+/** Release all resources for a dispatched job */
+function releaseSlot(jobId, deviceKey) {
+  _dispatchedJobs.delete(jobId);
+  _running = Math.max(0, _running - 1);
+  releaseDevice(deviceKey);
+  setImmediate(processQueue);
+}
 
 /* ── Event bus ───────────────────────────────────────────── */
 function emit(event) {
@@ -46,15 +110,15 @@ function subscribe(fn) {
 
 /**
  * Build ffmpeg args for a given encoder preset.
+ * Pre-input flags (like -hwaccel) must appear before -i.
  */
 function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
   // Quality presets: fast (lower quality), balanced, quality (slow)
   const crf = quality === 'fast' ? 32 : quality === 'quality' ? 22 : 28;
   const speed = quality === 'fast' ? 'fast' : quality === 'quality' ? 'slow' : 'medium';
 
-  const base = [
-    '-hide_banner', '-y',
-    '-i', inputPath,
+  const pre = ['-hide_banner', '-y'];  // before -i
+  const post = [
     '-map', '0:v:0', '-map', '0:a?',   // first video + all audio
     '-c:a', 'copy',                       // copy audio
     '-movflags', '+faststart',
@@ -65,47 +129,56 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
   switch (preset.encoder) {
     /* ── NVIDIA NVENC ─────────────────────────────────── */
     case 'hevc_nvenc':
-      return [...base,
+      return [...pre,
+        '-hwaccel', 'cuda', '-hwaccel_device', String(preset.gpuIndex ?? 0),
+        '-i', inputPath,
+        ...post,
         '-c:v', 'hevc_nvenc',
-        '-gpu', String(preset.gpuIndex ?? 0),
         '-preset', speed === 'slow' ? 'p7' : speed === 'fast' ? 'p1' : 'p4',
-        '-rc', 'constqp', '-qp', String(crf - 3), // NVENC uses QP, lower = better
-        '-b:v', '0',
+        '-rc:v', 'vbr', '-cq', String(crf), '-b:v', '0',
         outputPath,
       ];
 
     case 'av1_nvenc':
-      return [...base,
+      return [...pre,
+        '-hwaccel', 'cuda', '-hwaccel_device', String(preset.gpuIndex ?? 0),
+        '-i', inputPath,
+        ...post,
         '-c:v', 'av1_nvenc',
-        '-gpu', String(preset.gpuIndex ?? 0),
         '-preset', speed === 'slow' ? 'p7' : speed === 'fast' ? 'p1' : 'p4',
-        '-rc', 'constqp', '-qp', String(crf - 1),
-        '-b:v', '0',
+        '-rc:v', 'vbr', '-cq', String(crf), '-b:v', '0',
         outputPath,
       ];
 
     /* ── VA-API (AMD / Intel) ─────────────────────────── */
     case 'hevc_vaapi':
-      return [...base,
+      return [...pre,
         '-vaapi_device', preset.renderDevice || '/dev/dri/renderD128',
+        '-i', inputPath,
+        ...post,
         '-vf', 'format=nv12,hwupload',
         '-c:v', 'hevc_vaapi',
-        '-qp', String(crf),
+        '-rc_mode', 'CQP', '-qp', String(crf),
         outputPath,
       ];
 
     case 'av1_vaapi':
-      return [...base,
+      return [...pre,
         '-vaapi_device', preset.renderDevice || '/dev/dri/renderD128',
+        '-i', inputPath,
+        ...post,
         '-vf', 'format=nv12,hwupload',
         '-c:v', 'av1_vaapi',
-        '-qp', String(crf),
+        '-rc_mode', 'CQP', '-qp', String(crf),
         outputPath,
       ];
 
     /* ── Intel QSV ────────────────────────────────────── */
     case 'hevc_qsv':
-      return [...base,
+      return [...pre,
+        '-hwaccel', 'qsv',
+        '-i', inputPath,
+        ...post,
         '-c:v', 'hevc_qsv',
         '-global_quality', String(crf),
         '-preset', speed === 'slow' ? 'veryslow' : speed === 'fast' ? 'veryfast' : 'medium',
@@ -113,7 +186,10 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
       ];
 
     case 'av1_qsv':
-      return [...base,
+      return [...pre,
+        '-hwaccel', 'qsv',
+        '-i', inputPath,
+        ...post,
         '-c:v', 'av1_qsv',
         '-global_quality', String(crf),
         outputPath,
@@ -121,7 +197,9 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
 
     /* ── CPU libx265 ──────────────────────────────────── */
     case 'libx265':
-      return [...base,
+      return [...pre,
+        '-i', inputPath,
+        ...post,
         '-c:v', 'libx265',
         '-crf', String(crf),
         '-preset', speed,
@@ -131,7 +209,9 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
 
     /* ── CPU SVT-AV1 ──────────────────────────────────── */
     case 'libsvtav1':
-      return [...base,
+      return [...pre,
+        '-i', inputPath,
+        ...post,
         '-c:v', 'libsvtav1',
         '-crf', String(crf),
         '-preset', speed === 'fast' ? '10' : speed === 'quality' ? '4' : '7',
@@ -141,7 +221,9 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
 
     /* ── CPU libaom-av1 ───────────────────────────────── */
     case 'libaom-av1':
-      return [...base,
+      return [...pre,
+        '-i', inputPath,
+        ...post,
         '-c:v', 'libaom-av1',
         '-crf', String(crf),
         '-b:v', '0',
@@ -158,17 +240,22 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
 /* ── Duration parser for ffmpeg progress ─────────────────── */
 function parseDuration(str) {
   if (!str) return 0;
-  const m = str.match(/(\d+):(\d+):(\d+)\.(\d+)/);
+  // Match HH:MM:SS.fraction (ffmpeg uses 6-digit microsecond precision)
+  const m = str.match(/(\d+):(\d+):([\d.]+)/);
   if (!m) return parseFloat(str) || 0;
-  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 100;
+  return Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3]);
 }
 
 /* ── Run a single encode job ─────────────────────────────── */
-async function runEncodeJob(jobId) {
-  console.log(`[encode] ▶ Starting job #${jobId}`);
+async function runEncodeJob(jobId, resolvedPreset, deviceKey) {
+  console.log(`[encode] ▶ Starting job #${jobId} on device=${deviceKey}`);
   // Load job from DB
   const [[job]] = await pool.query('SELECT * FROM encode_jobs WHERE id = ?', [jobId]);
-  if (!job) { console.error(`[encode] ✕ Job #${jobId} not found in DB`); return; }
+  if (!job) {
+    console.error(`[encode] ✕ Job #${jobId} not found in DB`);
+    releaseSlot(jobId, deviceKey);
+    return;
+  }
 
   // Load media for duration
   const [[media]] = await pool.query('SELECT duration, file_path, size FROM media WHERE id = ?', [job.media_id]);
@@ -176,6 +263,7 @@ async function runEncodeJob(jobId) {
     console.error(`[encode] ✕ Job #${jobId}: media id=${job.media_id} not found in DB`);
     await pool.query("UPDATE encode_jobs SET status='error', error='Media not found', finished_at=NOW() WHERE id=?", [jobId]);
     emit({ type: 'job_error', jobId, error: 'Media not found' });
+    releaseSlot(jobId, deviceKey);
     return;
   }
 
@@ -184,13 +272,17 @@ async function runEncodeJob(jobId) {
   const ext = job.target_codec === 'av1' ? '.mkv' : '.mp4';
   const outputPath = path.join(ENCODE_DIR, `encode_${jobId}${ext}`);
 
-  // Get preset info
-  const caps = await gpuDetect.detectAll();
-  const preset = caps.presets.find(p => p.id === job.preset_id) || caps.presets.find(p => p.encoder === job.encoder);
+  // Use resolved preset (passed from processQueue) or look it up
+  let preset = resolvedPreset;
   if (!preset) {
-    console.error(`[encode] ✕ Job #${jobId}: preset "${job.preset_id}" / encoder "${job.encoder}" not found. Available presets: ${caps.presets.map(p => p.id).join(', ')}`);
+    const caps = await gpuDetect.detectAll();
+    preset = caps.presets.find(p => p.id === job.preset_id) || caps.presets.find(p => p.encoder === job.encoder);
+  }
+  if (!preset) {
+    console.error(`[encode] ✕ Job #${jobId}: preset "${job.preset_id}" / encoder "${job.encoder}" not found`);
     await pool.query("UPDATE encode_jobs SET status='error', error='Preset not found', finished_at=NOW() WHERE id=?", [jobId]);
     emit({ type: 'job_error', jobId, error: 'Preset not found' });
+    releaseSlot(jobId, deviceKey);
     return;
   }
 
@@ -205,28 +297,30 @@ async function runEncodeJob(jobId) {
     console.log(`[encode] Job #${jobId}: input=${inputPath} output=${outputPath} encoder=${preset.encoder} quality=${job.quality} duration=${totalDuration}s`);
     const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-    _activeJobs.set(jobId, { process: proc, cancelled: false });
+    _activeJobs.set(jobId, { process: proc, cancelled: false, deviceKey });
 
     let stderrBuf = '';
+    let lastSpeed = '';
 
     proc.stdout.on('data', (data) => {
       const lines = data.toString().split('\n');
+      let blockPct = -1;
       for (const line of lines) {
+        // Collect speed (appears after out_time in each progress block)
+        const sp = line.match(/speed=\s*(\S+)/);
+        if (sp) lastSpeed = sp[1];
+
         const m = line.match(/out_time=(\S+)/);
         if (m && totalDuration > 0) {
           const current = parseDuration(m[1]);
-          const pct = Math.min(99, Math.round((current / totalDuration) * 100));
-          if (pct > lastProgress) {
-            lastProgress = pct;
-            pool.query("UPDATE encode_jobs SET progress=? WHERE id=?", [pct, jobId]).catch(() => {});
-            emit({ type: 'job_progress', jobId, progress: pct, mediaId: job.media_id });
-          }
+          blockPct = Math.min(99, Math.round((current / totalDuration) * 100));
         }
-        // Speed info
-        const sp = line.match(/speed=\s*(\S+)/);
-        if (sp) {
-          emit({ type: 'job_speed', jobId, speed: sp[1] });
-        }
+      }
+      // Emit once per data chunk with latest speed
+      if (blockPct > lastProgress) {
+        lastProgress = blockPct;
+        pool.query("UPDATE encode_jobs SET progress=? WHERE id=?", [blockPct, jobId]).catch(() => {});
+        emit({ type: 'job_progress', jobId, progress: blockPct, speed: lastSpeed, mediaId: job.media_id });
       }
     });
 
@@ -237,17 +331,16 @@ async function runEncodeJob(jobId) {
     });
 
     proc.on('close', async (code) => {
+      const jobState = _activeJobs.get(jobId);
       _activeJobs.delete(jobId);
-      _running--;
       console.log(`[encode] Job #${jobId}: ffmpeg exited with code ${code}`);
 
-      const jobState = _activeJobs.get(jobId);
       if (jobState?.cancelled) {
-        // Was cancelled
         console.log(`[encode] Job #${jobId}: cancelled by user`);
         await pool.query("UPDATE encode_jobs SET status='cancelled', finished_at=NOW() WHERE id=?", [jobId]);
         try { fs.unlinkSync(outputPath); } catch {}
         emit({ type: 'job_cancelled', jobId });
+        releaseSlot(jobId, deviceKey);
         resolve();
         return;
       }
@@ -260,6 +353,7 @@ async function runEncodeJob(jobId) {
         await pool.query("UPDATE encode_jobs SET status='error', error=?, finished_at=NOW() WHERE id=?", [errMsg, jobId]);
         try { fs.unlinkSync(outputPath); } catch {}
         emit({ type: 'job_error', jobId, error: errMsg });
+        releaseSlot(jobId, deviceKey);
         resolve();
         return;
       }
@@ -290,9 +384,8 @@ async function runEncodeJob(jobId) {
         }
       }
 
+      releaseSlot(jobId, deviceKey);
       resolve();
-      // Trigger next job
-      processQueue();
     });
   });
 }
@@ -330,29 +423,67 @@ async function replaceOriginal(mediaId, originalPath, encodedPath, targetCodec) 
   }
 }
 
-/* ── Queue processor ─────────────────────────────────────── */
+/* ── Queue processor (device-aware) ──────────────────────── */
+let _queueRunning = false;
+
 async function processQueue() {
-  if (_running >= _maxWorkers) {
-    console.log(`[encode] Queue: max workers reached (${_running}/${_maxWorkers}), waiting…`);
-    return;
-  }
+  // Prevent concurrent processQueue calls
+  if (_queueRunning) return;
+  _queueRunning = true;
 
-  // Get next pending job
-  const [[nextJob]] = await pool.query(
-    "SELECT id FROM encode_jobs WHERE status='pending' ORDER BY created_at ASC LIMIT 1"
-  );
-  if (!nextJob) return;
+  try {
+    if (_running >= _maxWorkers) return;
 
-  console.log(`[encode] Queue: dispatching job #${nextJob.id} (workers: ${_running + 1}/${_maxWorkers})`);
-  _running++;
-  runEncodeJob(nextJob.id).catch(e => {
-    console.error(`[encode] ✕ Job #${nextJob.id} unhandled error:`, e.message, e.stack);
-    _running--;
-  });
+    // Get all pending jobs
+    const [pendingJobs] = await pool.query(
+      "SELECT id, preset_id, encoder FROM encode_jobs WHERE status='pending' ORDER BY created_at ASC"
+    );
+    if (!pendingJobs.length) return;
 
-  // Check if we can run more
-  if (_running < _maxWorkers) {
-    setImmediate(processQueue);
+    const caps = await gpuDetect.detectAll();
+
+    for (const job of pendingJobs) {
+      if (_running >= _maxWorkers) break;
+      if (_dispatchedJobs.has(job.id)) continue;
+
+      // Resolve preset (handles group presets like nvidia_h265 → best available GPU)
+      const resolved = await resolvePreset(job.preset_id, caps);
+      if (!resolved) {
+        console.log(`[encode] Queue: job #${job.id} preset "${job.preset_id}" — no available device, skipping`);
+        continue;
+      }
+
+      // Check device capacity
+      const deviceKey = getDeviceKey(resolved);
+      if (!isDeviceAvailable(resolved)) {
+        console.log(`[encode] Queue: job #${job.id} device ${deviceKey} busy, skipping`);
+        continue;
+      }
+
+      // Dispatch
+      _dispatchedJobs.add(job.id);
+      acquireDevice(deviceKey);
+      _running++;
+
+      // Update job if group preset was resolved to a specific one
+      if (resolved.id !== job.preset_id) {
+        await pool.query(
+          "UPDATE encode_jobs SET encoder=?, preset_id=? WHERE id=?",
+          [resolved.encoder, resolved.id, job.id]
+        );
+      }
+
+      console.log(`[encode] Queue: dispatching job #${job.id} on ${deviceKey} (workers: ${_running}/${_maxWorkers})`);
+
+      runEncodeJob(job.id, resolved, deviceKey).catch(e => {
+        console.error(`[encode] ✕ Job #${job.id} unhandled error:`, e.message, e.stack);
+        releaseSlot(job.id, deviceKey);
+      });
+    }
+  } catch (e) {
+    console.error('[encode] processQueue error:', e.message);
+  } finally {
+    _queueRunning = false;
   }
 }
 
@@ -360,11 +491,12 @@ async function processQueue() {
 
 /**
  * Enqueue one or more media items for encoding.
+ * Supports group presets (e.g., "nvidia_h265") which auto-distribute across GPUs.
  * @param {number[]} mediaIds
  * @param {object} options - { presetId, quality, replaceOriginal }
  * @returns {Promise<number[]>} created job IDs
  */
-async function enqueueJobs(mediaIds, { presetId, quality = 'balanced', replaceOriginal = false } = {}) {
+async function enqueueJobs(mediaIds, { presetId, quality = 'balanced', replaceOriginal = true } = {}) {
   console.log(`[encode] Enqueue request: ${mediaIds.length} media(s), preset=${presetId}, quality=${quality}, replace=${replaceOriginal}`);
   const caps = await gpuDetect.detectAll();
   const preset = caps.presets.find(p => p.id === presetId);
@@ -429,6 +561,8 @@ async function cancelAll() {
   }
   // Cancel all pending
   await pool.query("UPDATE encode_jobs SET status='cancelled', finished_at=NOW() WHERE status IN ('pending','encoding')");
+  // Clear dispatched set for pending jobs that hadn't started yet
+  _dispatchedJobs.clear();
   emit({ type: 'all_cancelled' });
 }
 

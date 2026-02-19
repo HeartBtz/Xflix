@@ -22,6 +22,10 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
+if (!process.env.DB_PASS) {
+  console.warn('  ⚠️  DB_PASS non défini — utilisation du mot de passe par défaut. Définissez DB_PASS dans .env.');
+}
+
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT) || 3306,
@@ -326,7 +330,10 @@ async function insertMedia(performerId, filename, filePath, type, mimeType, size
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [performerId, filename, filePath, type, mimeType, size, width || null, height || null, duration || null]
     );
-  } catch(e) { /* ignore duplicate */ }
+  } catch(e) {
+    if (e.code === 'ER_DUP_ENTRY') return; // expected — skip duplicates
+    console.error('[DB] insertMedia error:', e.message);
+  }
 }
 
 /**
@@ -343,7 +350,10 @@ async function batchInsertMedia(records) {
        VALUES ${placeholders}`,
       values
     );
-  } catch(e) { /* ignore duplicates */ }
+  } catch(e) {
+    if (e.code === 'ER_DUP_ENTRY') return; // expected — skip duplicates
+    console.error('[DB] batchInsertMedia error:', e.message);
+  }
 }
 
 async function updatePerformerCounts() {

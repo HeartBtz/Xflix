@@ -117,7 +117,7 @@ Here are quick `curl` examples showing common admin operations for the encoding 
 ```bash
 curl -X POST https://your-host:3000/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@xflix.local","password":"admin123"}'
+  -d '{"email":"admin@xflix.local","password":"xflix2026"}'
 
 # response: { "token": "ey..." }
 ```
@@ -161,8 +161,8 @@ Add optional screenshots of the new Admin UI to the repository (recommended path
 Example Markdown inclusion in `README.md`:
 
 ```markdown
-![Admin Encodage tab](docs/screenshots/encodage.svg)
-![Admin Dashboard](docs/screenshots/dashboard.svg)
+![Admin Encodage tab](docs/screenshots/encodage.png)
+![Admin Dashboard](docs/screenshots/dashboard.png)
 ```
 
 Tips:

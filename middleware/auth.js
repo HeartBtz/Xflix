@@ -49,10 +49,17 @@ async function optionalAuth(req, res, next) {
 
 /** Middleware: require authenticated user */
 function requireAuth(req, res, next) {
+  let tokenStr = null;
   const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Authentication required' });
+  if (auth?.startsWith('Bearer ')) {
+    tokenStr = auth.slice(7);
+  } else if (req.query?.token) {
+    // Allow token via query param (needed for EventSource SSE which can't set headers)
+    tokenStr = req.query.token;
+  }
+  if (!tokenStr) return res.status(401).json({ error: 'Authentication required' });
   try {
-    const decoded = verifyToken(auth.slice(7));
+    const decoded = verifyToken(tokenStr);
     req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
     next();
   } catch(e) {

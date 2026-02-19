@@ -238,6 +238,16 @@
           <div id="encPagination" class="pagination" style="margin-top:14px"></div>
         </div>
 
+        <!-- Live Logs -->
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-yellow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg></div>
+            <div><h3>Logs d'encodage</h3><p class="muted">Journal en temps réel du système d'encodage.</p></div>
+            <button class="btn btn-ghost btn-xs" id="encClearLogsBtn" style="margin-left:auto" title="Vider les logs">✕ Vider</button>
+          </div>
+          <pre id="encLogs" class="log-box" style="max-height:340px"></pre>
+        </div>
+
         <!-- History -->
         <div class="admin-card">
           <div class="card-header">

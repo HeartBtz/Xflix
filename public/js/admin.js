@@ -952,6 +952,10 @@
     });
 
     document.getElementById('encEnqueueBtn').addEventListener('click', enqueueSelected);
+
+    document.getElementById('encClearLogsBtn').addEventListener('click', () => {
+      document.getElementById('encLogs').innerHTML = '';
+    });
   }
 
   /* ── Hardware Info ── */
@@ -1088,11 +1092,11 @@
   function startEncodeEvents() {
     if (encEventSource) return;
     try {
-      encEventSource = new EventSource('/admin/encode/events');
-      // We can't easily add auth headers to EventSource, so we use fetch-based SSE
+      // Pass JWT via query param since EventSource can't set Authorization header
+      encEventSource = new EventSource(`/admin/encode/events?token=${encodeURIComponent(token())}`);
     } catch {}
 
-    // Use polling fallback for authenticated SSE
+    // Use polling fallback if connection fails
     if (!encEventSource || encEventSource.readyState === 2) {
       encEventSource = null;
       startEncodePolling();
@@ -1125,6 +1129,7 @@
   }
 
   function handleEncodeEvent(data) {
+    // Update progress bars in the active jobs list
     if (data.type === 'job_progress') {
       const jobEl = document.querySelector(`.enc-job[data-job-id="${data.jobId}"]`);
       if (jobEl) {
@@ -1138,6 +1143,48 @@
       loadEncodeStatus();
       if (data.type === 'job_done') loadEncodeHistory();
     }
+
+    // Append to live log panel
+    encLogEvent(data);
+  }
+
+  /** Format an SSE encode event into a readable log line in the UI */
+  function encLogEvent(data) {
+    const logEl = document.getElementById('encLogs');
+    if (!logEl) return;
+    const ts = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    let cls = '', text = '';
+    switch (data.type) {
+      case 'job_started':
+        cls = 'log-info'; text = `▶ Job #${data.jobId} démarré (media ${data.mediaId})`; break;
+      case 'job_progress':
+        if (data.progress % 10 === 0 || data.progress >= 99) {
+          cls = 'log-muted'; text = `⏳ Job #${data.jobId} — ${data.progress}%`;
+          if (data.speed) text += ` (${data.speed})`;
+        } else return; // skip noisy intermediate updates
+        break;
+      case 'job_speed':
+        return; // handled via job_progress
+      case 'job_done':
+        cls = 'log-phase';
+        text = `✅ Job #${data.jobId} terminé`;
+        if (data.inputSize && data.outputSize) {
+          const saved = ((1 - data.outputSize / data.inputSize) * 100).toFixed(1);
+          text += ` — ${fmtSize(data.inputSize)} → ${fmtSize(data.outputSize)} (${saved}% économisé)`;
+        }
+        break;
+      case 'job_error':
+        cls = 'log-err'; text = `❌ Job #${data.jobId} échoué : ${data.error || 'erreur inconnue'}`; break;
+      case 'job_cancelled':
+        cls = 'log-err'; text = `⏹ Job #${data.jobId} annulé`; break;
+      case 'all_cancelled':
+        cls = 'log-err'; text = '⏹ Tous les jobs annulés'; break;
+      case 'job_replace_error':
+        cls = 'log-err'; text = `⚠️ Job #${data.jobId} : erreur remplacement original : ${data.error}`; break;
+      default:
+        cls = 'log-muted'; text = JSON.stringify(data);
+    }
+    logAppend(logEl, cls, `[${ts}] ${text}`);
   }
 
   /* ── Video Selection ── */
@@ -1276,6 +1323,9 @@
       const data = await res.json();
       if (data.jobIds?.length) {
         showToast(`${data.jobIds.length} job(s) ajouté(s) à la file`);
+        const logEl = document.getElementById('encLogs');
+        const ts = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        logAppend(logEl, 'log-action', `[${ts}] 📤 ${data.jobIds.length} job(s) ajouté(s) — preset=${preset}, quality=${quality}, replace=${replaceOriginal}`);
         // Mark cards as queued
         checked.forEach(cb => {
           cb.checked = false; cb.disabled = true;

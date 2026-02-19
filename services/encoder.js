@@ -131,13 +131,12 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
     case 'hevc_nvenc':
       // CPU decodes (reliable with any input codec), NVENC encodes on GPU.
       // -pix_fmt yuv420p is mandatory: NVENC rejects yuvj420p/yuv422p/yuv444p
-      // and silently outputs 0 frames without it.
-      // -gpu N selects which NVENC-capable GPU to use for encoding.
+      // GPU selection is done via CUDA_VISIBLE_DEVICES env var on spawn (more
+      // reliable than -gpu N which is not supported on all ffmpeg/NVENC builds).
       return [...pre,
         '-i', inputPath,
         ...post,
         '-c:v', 'hevc_nvenc',
-        '-gpu', String(preset.gpuIndex ?? 0),
         '-pix_fmt', 'yuv420p',
         '-preset', speed === 'slow' ? 'p7' : speed === 'fast' ? 'p1' : 'p4',
         '-rc:v', 'vbr', '-cq', String(crf), '-b:v', '0',
@@ -149,7 +148,6 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
         '-i', inputPath,
         ...post,
         '-c:v', 'av1_nvenc',
-        '-gpu', String(preset.gpuIndex ?? 0),
         '-pix_fmt', 'yuv420p',
         '-preset', speed === 'slow' ? 'p7' : speed === 'fast' ? 'p1' : 'p4',
         '-rc:v', 'vbr', '-cq', String(crf), '-b:v', '0',
@@ -301,7 +299,17 @@ async function runEncodeJob(jobId, resolvedPreset, deviceKey) {
     const args = buildFfmpegArgs(inputPath, outputPath, preset, job.quality || 'balanced');
     console.log(`[encode] Job #${jobId}: ffmpeg ${args.join(' ')}`);
     console.log(`[encode] Job #${jobId}: input=${inputPath} output=${outputPath} encoder=${preset.encoder} quality=${job.quality} duration=${totalDuration}s`);
-    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    // For NVIDIA NVENC, restrict visible CUDA devices to the target GPU.
+    // CUDA_VISIBLE_DEVICES is universally supported across ffmpeg/NVENC builds;
+    // the -gpu flag is not (silently ignored on some builds, causing 0 frames).
+    const spawnEnv = { ...process.env };
+    if (preset.type === 'nvidia' && preset.gpuIndex != null) {
+      spawnEnv.CUDA_VISIBLE_DEVICES = String(preset.gpuIndex);
+      console.log(`[encode] Job #${jobId}: CUDA_VISIBLE_DEVICES=${spawnEnv.CUDA_VISIBLE_DEVICES}`);
+    }
+
+    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'], env: spawnEnv });
 
     _activeJobs.set(jobId, { process: proc, cancelled: false, deviceKey });
 

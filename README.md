@@ -156,20 +156,10 @@ curl -N -H "Authorization: Bearer $TOKEN" https://your-host:3000/admin/encode/ev
 
 ### Screenshots
 
-Add optional screenshots of the new Admin UI to the repository (recommended path: `docs/screenshots/`).
 
-Example Markdown inclusion in `README.md`:
-
-```markdown
 ![Admin Encodage tab](docs/screenshots/encodage.png)
 ![Admin Dashboard](docs/screenshots/dashboard.png)
-```
 
-Tips:
-
-- Create `docs/screenshots/` and commit your PNG/JPEG files.
-- Use small optimised images (max 1200px width) to keep the repo light.
-- If you want, I can generate placeholder screenshots or a short animated GIF showcasing encoding progress.
 
 ### Performance
 | Technique | Effect |

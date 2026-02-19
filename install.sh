@@ -21,8 +21,11 @@ die()  { err "$*"; exit 1; }
 # ── Générateurs aléatoires (openssl uniquement) ──────────────────────
 rand_hex()  { openssl rand -hex "${1:-32}"; }
 rand_pass() {
-  # 20 caractères alphanumériques + symboles sûrs pour bash et SQL
-  tr -dc 'A-Za-z0-9@#%+=' < /dev/urandom | head -c "${1:-20}"
+  # Génère en mémoire (pas de pipe /dev/urandom|head qui provoque SIGPIPE)
+  local len="${1:-20}"
+  local raw
+  raw="$(openssl rand -base64 $((len * 2)) | tr -dc 'A-Za-z0-9@#%+=')"
+  printf '%s' "${raw:0:$len}"
 }
 
 echo ""

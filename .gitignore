@@ -7,6 +7,8 @@ node_modules/
 
 # Environment secrets — copy .env.example → .env and fill in your values
 .env
+*.env.local
+.env.*.local
 
 # Generated thumbnails — large binary files, re-generated at runtime.
 # The directory itself must exist: it is preserved via data/thumbs/.gitkeep
@@ -19,6 +21,10 @@ data/thumbs/*
 # Logs
 *.log
 npm-debug.log*
+
+# Local npm cache / build artifacts that may be created during CI or on dev machines
+.npm/
+.cache/
 
 # Build artefacts / archives
 *.tar.gz

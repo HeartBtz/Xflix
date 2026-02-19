@@ -35,6 +35,20 @@ Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 - **Discover** page with random videos + photos
 - Global **search** with advanced filters (size, duration, type, favourite…)
 
+---
+
+## Recent changes (v1.2+)
+
+- Auto-tagging of media on scan: resolution (4K/1080p/720p/SD), codec (H.265/VP9/AV1), and duration buckets (Court/Moyen/Long).
+- Dark / light theme toggle persisted in `localStorage`.
+- Tag-based filtering on performer pages with per-performer tag counts.
+- "Nouveautés" (Recently added) page and Discover section.
+- Related videos shown inside the player (same performer random sample).
+- Custom thumbnail upload endpoint: `POST /api/thumb/:id/upload` (accepts base64 image).
+- Infinite scroll on performer video lists (replaces pagination when enabled).
+- Video technical info (codec, fps, bitrate, audio sample rate) extracted via `ffprobe` and shown in the player.
+
+
 ### Accounts & social
 - **Register / Login** via JWT (7-day expiry by default, configurable)
 - Roles: `admin` / `member` — first registered user is automatically admin
@@ -140,6 +154,8 @@ xflix/
 | Node.js | 18.x | Installed automatically by `install.sh` via nvm |
 | MariaDB | 10.5+ | MySQL 8.0+ also works |
 | FFmpeg | any recent | Required for video thumbnails and duration extraction.<br>Installed automatically by `install.sh`. |
+| sharp (npm) | — | Image processing library used for photo thumbnails; installed via `npm install` as a dependency |
+| ffprobe | bundled with ffmpeg | Used by scanner to extract codec/fps/bitrate/audio info |
 | RAM | 512 MB+ | More RAM = larger DB buffer pool |
 | Disk | — | `data/thumbs/` grows ~10 KB per media item |
 
@@ -165,6 +181,23 @@ bash install.sh
 8. Starts the server via **PM2** and registers it for boot autostart
 
 After install, open **http://localhost:3000** and launch a scan from ⚙️ Admin.
+
+---
+
+## Purging data (if you want a fresh install)
+
+To completely wipe indexed data and thumbnails and start over:
+
+```bash
+# Truncate DB tables (keeps DB user) and rebuild schema
+node cli.js clear
+
+# Remove generated thumbnails (keeps data/thumbs/.gitkeep)
+rm -f data/thumbs/* && touch data/thumbs/.gitkeep
+
+# Optionally run a fresh scan
+node cli.js scan
+```
 
 > **Tip:** To update an existing install, `git pull` and re-run `bash install.sh`.
 

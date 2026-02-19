@@ -55,10 +55,22 @@ function formatNumber(n) {
   return String(n);
 }
 
-async function apiFetch(url) {
-  const r = await fetch(url, { headers: authHeaders() });
-  if (!r.ok) throw new Error(`API error ${r.status}`);
-  return r.json();
+async function apiFetch(url, retries = 3, delay = 400) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url, { headers: authHeaders() });
+      if (!r.ok) throw new Error(`API error ${r.status}`);
+      return await r.json();
+    } catch(e) {
+      if (attempt === retries) throw e;
+      // Retry uniquement sur les erreurs réseau (Failed to fetch, NetworkError)
+      if (e instanceof TypeError) {
+        await new Promise(res => setTimeout(res, delay * attempt));
+      } else {
+        throw e; // erreur applicative (4xx, 5xx) → pas de retry
+      }
+    }
+  }
 }
 
 async function apiPost(url) {

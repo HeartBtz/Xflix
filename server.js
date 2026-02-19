@@ -3,7 +3,18 @@ const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
-const { initSchema } = require('./db');
+const { initSchema, pool } = require('./db');
+
+// ── Empêche tout crash sur rejection/exception non gérée ──────────
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err.message, err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason instanceof Error ? reason.message : reason);
+});
+pool.on('error', (err) => {
+  console.error('[pool error]', err.message);
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;

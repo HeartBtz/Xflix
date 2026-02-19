@@ -108,6 +108,69 @@ Requirements & notes:
 - On systems without GPU support, CPU encoders are used (slower, but reliable).
 - Large-scale encoding is disk/CPU/GPU intensive — tune `encMaxWorkers` in the Admin panel.
 
+### Examples
+
+Here are quick `curl` examples showing common admin operations for the encoding subsystem. All endpoints require an admin JWT token in the `Authorization: Bearer <token>` header.
+
+- Authenticate (obtain token):
+
+```bash
+curl -X POST https://your-host:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@xflix.local","password":"admin123"}'
+
+# response: { "token": "ey..." }
+```
+
+- Get hardware capabilities and available presets:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://your-host:3000/admin/encode/capabilities
+```
+
+- List videos (filterable) to select media IDs to enqueue:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" "https://your-host:3000/admin/encode/videos?limit=50&performer_id=3&codec=h264"
+```
+
+- Enqueue media IDs for encoding (example: encode to preset `cpu_h265`):
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  https://your-host:3000/admin/encode/enqueue \
+  -d '{"mediaIds":[12,45,67],"presetId":"cpu_h265","quality":"balanced","replaceOriginal":false}'
+```
+
+- Poll queue status:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://your-host:3000/admin/encode/status
+```
+
+- Streams (SSE) for real-time progress (example client using `curl`):
+
+```bash
+curl -N -H "Authorization: Bearer $TOKEN" https://your-host:3000/admin/encode/events
+```
+
+### Screenshots
+
+Add optional screenshots of the new Admin UI to the repository (recommended path: `docs/screenshots/`).
+
+Example Markdown inclusion in `README.md`:
+
+```markdown
+![Admin Encodage tab](docs/screenshots/encodage.png)
+![Admin Dashboard](docs/screenshots/dashboard.png)
+```
+
+Tips:
+
+- Create `docs/screenshots/` and commit your PNG/JPEG files.
+- Use small optimised images (max 1200px width) to keep the repo light.
+- If you want, I can generate placeholder screenshots or a short animated GIF showcasing encoding progress.
+
 ### Performance
 | Technique | Effect |
 |---|---|

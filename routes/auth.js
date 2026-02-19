@@ -134,7 +134,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
     const expires = new Date(Date.now() + 3600 * 1000); // 1h
     await setResetToken(user.id, token, expires);
 
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
     const resetUrl = `${baseUrl}/reset-password?token=${token}`;
 
     try {

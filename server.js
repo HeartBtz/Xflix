@@ -42,6 +42,10 @@ pool.on('error', (err) => {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Fait confiance au premier proxy (nginx, caddy…) pour X-Forwarded-Proto/Host
+// Nécessaire pour que req.protocol soit https et non http derrière un reverse proxy
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: process.env.CORS_ORIGIN || true,   // 'true' = reflect request origin (same as wildcard but sends Vary)
   credentials: true,

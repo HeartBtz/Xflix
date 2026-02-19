@@ -103,7 +103,7 @@ if ! ss -tlnp 2>/dev/null | grep -q ':3306'; then
 
   sudo systemctl start mariadb 2>/dev/null \
     || sudo systemctl start mysql 2>/dev/null \
-    || { [ -n "$MYSQLD_BIN" ] && sudo "$MYSQLD_BIN" --user=mysql --daemonize 2>/dev/null; } \
+    || { [ -n "$MYSQLD_BIN" ] && sudo "$MYSQLD_BIN" --user=mysql &>/dev/null & } \
     || true
 
   # Attente jusqu'à 20s

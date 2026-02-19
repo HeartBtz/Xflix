@@ -203,6 +203,31 @@ async function initSchema() {
         FOREIGN KEY (tag_id)   REFERENCES tags(id)  ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // ── Encode jobs (video re-encoding queue) ────────────────────────
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS encode_jobs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        media_id INT NOT NULL,
+        target_codec VARCHAR(20) NOT NULL COMMENT 'h265 or av1',
+        encoder VARCHAR(50) NOT NULL COMMENT 'hevc_nvenc, libx265, libsvtav1, etc.',
+        preset_id VARCHAR(100) COMMENT 'gpu-detect preset id',
+        quality VARCHAR(20) DEFAULT 'balanced' COMMENT 'fast, balanced, quality',
+        replace_original TINYINT DEFAULT 0,
+        status ENUM('pending','encoding','done','error','cancelled') DEFAULT 'pending',
+        progress TINYINT UNSIGNED DEFAULT 0,
+        file_size_before BIGINT DEFAULT 0,
+        file_size_after BIGINT DEFAULT 0,
+        output_path VARCHAR(1000),
+        error TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        started_at DATETIME,
+        finished_at DATETIME,
+        KEY idx_encode_status (status),
+        KEY idx_encode_media (media_id),
+        FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
   } finally {
     conn.release();
   }

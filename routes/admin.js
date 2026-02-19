@@ -55,6 +55,8 @@ const crypto   = require('crypto');
 const { pool, getSetting, setSetting, listUsers, updateUserRole, deleteUser, countAdmins, updatePerformerCounts } = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { testSmtp } = require('../services/mail');
+const gpuDetect = require('../services/gpu-detect');
+const encoder   = require('../services/encoder');
 const scanner  = require('../scanner');
 const { MEDIA_DIR, THUMB_DIR, VIDEO_EXTS, PHOTO_EXTS } = scanner;
 
@@ -699,6 +701,168 @@ router.delete('/media/:id', async (req, res) => {
     try { await fs.promises.unlink(thumbPath); } catch(_) {}
     res.json({ message: 'Deleted', id });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   VIDEO ENCODING
+   ══════════════════════════════════════════════════════════════════ */
+
+// GET /admin/encode/capabilities — detected hardware + available presets
+router.get('/encode/capabilities', async (req, res) => {
+  try {
+    const caps = await gpuDetect.detectAll(req.query.refresh === '1');
+    res.json(caps);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /admin/encode/status — queue status with active jobs
+router.get('/encode/status', async (req, res) => {
+  try {
+    const status = await encoder.getQueueStatus();
+    res.json(status);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /admin/encode/history — job history with pagination
+router.get('/encode/history', async (req, res) => {
+  try {
+    const page  = Number(req.query.page) || 1;
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const history = await encoder.getJobHistory(page, limit);
+    res.json(history);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /admin/encode/enqueue — add jobs to queue
+// Body: { mediaIds: number[], presetId: string, quality: string, replaceOriginal: bool }
+router.post('/encode/enqueue', async (req, res) => {
+  try {
+    const { mediaIds, presetId, quality, replaceOriginal } = req.body || {};
+    if (!mediaIds?.length) return res.status(400).json({ error: 'No media IDs provided' });
+    if (!presetId) return res.status(400).json({ error: 'No preset selected' });
+    const jobIds = await encoder.enqueueJobs(mediaIds, { presetId, quality, replaceOriginal });
+    res.json({ message: `${jobIds.length} job(s) enqueued`, jobIds });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /admin/encode/cancel/:id — cancel a single job
+router.post('/encode/cancel/:id', async (req, res) => {
+  try {
+    await encoder.cancelJob(Number(req.params.id));
+    res.json({ message: 'Cancelled' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /admin/encode/cancel-all — cancel all jobs
+router.post('/encode/cancel-all', async (req, res) => {
+  try {
+    await encoder.cancelAll();
+    res.json({ message: 'All jobs cancelled' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /admin/encode/retry/:id — retry a failed job
+router.post('/encode/retry/:id', async (req, res) => {
+  try {
+    await encoder.retryJob(Number(req.params.id));
+    res.json({ message: 'Retried' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /admin/encode/job/:id — delete a job record
+router.delete('/encode/job/:id', async (req, res) => {
+  try {
+    await encoder.deleteJob(Number(req.params.id));
+    res.json({ message: 'Deleted' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /admin/encode/workers — set max workers
+router.post('/encode/workers', async (req, res) => {
+  try {
+    const { maxWorkers } = req.body || {};
+    encoder.setMaxWorkers(Number(maxWorkers) || 2);
+    res.json({ maxWorkers: encoder.getMaxWorkers() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /admin/encode/videos — list videos eligible for encoding with filters
+router.get('/encode/videos', async (req, res) => {
+  try {
+    const { performer_id, codec, min_size, max_size, min_duration, max_duration, page = 1, limit = 60, q = '' } = req.query;
+    const off = (Number(page) - 1) * Number(limit);
+    const where = ["m.type = 'video'"];
+    const params = [];
+
+    if (performer_id) { where.push('m.performer_id = ?'); params.push(Number(performer_id)); }
+    if (codec) { where.push('m.codec = ?'); params.push(codec); }
+    if (min_size) { where.push('m.size >= ?'); params.push(Number(min_size)); }
+    if (max_size) { where.push('m.size <= ?'); params.push(Number(max_size)); }
+    if (min_duration) { where.push('m.duration >= ?'); params.push(Number(min_duration)); }
+    if (max_duration) { where.push('m.duration <= ?'); params.push(Number(max_duration)); }
+    if (q) { where.push('m.file_path LIKE ?'); params.push(`%${q}%`); }
+
+    const whereStr = where.join(' AND ');
+    const [[{ total }]] = await pool.query(`SELECT COUNT(*) as total FROM media m WHERE ${whereStr}`, params);
+    const [rows] = await pool.query(
+      `SELECT m.id, m.file_path, m.filename, m.size, m.duration, m.codec, m.width, m.height, m.bitrate,
+              p.name as performer_name
+       FROM media m JOIN performers p ON p.id = m.performer_id
+       WHERE ${whereStr}
+       ORDER BY m.size DESC
+       LIMIT ? OFFSET ?`,
+      [...params, Number(limit), off]
+    );
+
+    // Check if each video already has a pending/encoding job
+    if (rows.length) {
+      const ids = rows.map(r => r.id);
+      const [jobs] = await pool.query(
+        "SELECT media_id, status FROM encode_jobs WHERE media_id IN (?) AND status IN ('pending','encoding')",
+        [ids]
+      );
+      const jobMap = new Map(jobs.map(j => [j.media_id, j.status]));
+      for (const row of rows) {
+        row.encode_status = jobMap.get(row.id) || null;
+      }
+    }
+
+    res.json({ data: rows, total, page: Number(page), limit: Number(limit) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /admin/encode/codec-stats — breakdown of videos by codec
+router.get('/encode/codec-stats', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT COALESCE(codec, 'unknown') as codec, COUNT(*) as count, SUM(size) as total_size,
+              ROUND(AVG(duration)) as avg_duration
+       FROM media WHERE type='video' GROUP BY codec ORDER BY count DESC`
+    );
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// SSE /admin/encode/events — real-time encode events stream
+router.get('/encode/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  let closed = false;
+  const send = (data) => {
+    if (!closed) try { res.write(`data: ${JSON.stringify(data)}\n\n`); if (res.flush) res.flush(); } catch {} };
+  const heartbeat = setInterval(() => {
+    if (!closed) try { res.write(': keep-alive\n\n'); if (res.flush) res.flush(); } catch {} }, 15000);
+
+  const unsub = encoder.subscribe(event => send(event));
+
+  res.on('close', () => {
+    closed = true;
+    clearInterval(heartbeat);
+    unsub();
+  });
 });
 
 module.exports = router;

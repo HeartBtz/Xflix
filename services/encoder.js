@@ -17,7 +17,7 @@ const { pool }     = require('../db');
 const gpuDetect    = require('./gpu-detect');
 
 /* ── Constants ───────────────────────────────────────────── */
-const ENCODE_DIR = path.resolve(__dirname, '../data/encoded');
+const ENCODE_DIR = process.env.ENCODE_DIR || path.resolve(__dirname, '../data/encoded');
 
 // Make sure encoded dir exists
 fs.mkdirSync(ENCODE_DIR, { recursive: true });
@@ -130,7 +130,11 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
     /* ── NVIDIA NVENC ─────────────────────────────────── */
     case 'hevc_nvenc':
       return [...pre,
-        '-hwaccel', 'cuda', '-hwaccel_device', String(preset.gpuIndex ?? 0),
+        // -hwaccel auto: ffmpeg selects the best available HW decoder and
+        // silently falls back to CPU if the input codec is not supported.
+        // Do NOT use -hwaccel cuda here — it forces GPU decoding and fails
+        // on most common codecs (h264, etc.) if CUDA doesn't support them.
+        '-hwaccel', 'auto', '-hwaccel_device', String(preset.gpuIndex ?? 0),
         '-i', inputPath,
         ...post,
         '-c:v', 'hevc_nvenc',
@@ -141,7 +145,7 @@ function buildFfmpegArgs(inputPath, outputPath, preset, quality = 'balanced') {
 
     case 'av1_nvenc':
       return [...pre,
-        '-hwaccel', 'cuda', '-hwaccel_device', String(preset.gpuIndex ?? 0),
+        '-hwaccel', 'auto', '-hwaccel_device', String(preset.gpuIndex ?? 0),
         '-i', inputPath,
         ...post,
         '-c:v', 'av1_nvenc',

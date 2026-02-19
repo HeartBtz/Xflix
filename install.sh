@@ -1,7 +1,7 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║            XFlix — Script d'installation complet                ║
-# ║  Gère : Node.js (nvm), MariaDB (apt), DB init, npm, démarrage  ║
+# ║  XFlix — Script d’installation                              ║
+# ║  Node.js (nvm) • MariaDB • npm • PM2 • compte admin         ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 set -euo pipefail
@@ -171,6 +171,14 @@ else
   ok ".env existant conservé."
 fi
 
+# Vérifier si MEDIA_DIR est encore la valeur par défaut
+MEDIA_DIR_VAL="$(grep '^MEDIA_DIR=' .env 2>/dev/null | cut -d= -f2-)"
+if [[ "$MEDIA_DIR_VAL" == "/home/coder/OF" ]] || [[ -z "$MEDIA_DIR_VAL" ]]; then
+  warn "MEDIA_DIR n’est pas configuré dans .env — modifiez-le avant de lancer un scan."
+elif [ ! -d "$MEDIA_DIR_VAL" ]; then
+  warn "MEDIA_DIR=$MEDIA_DIR_VAL n’existe pas encore sur le disque."
+fi
+
 # ════════════════════════════════════════════════════════════════════
 # 5. COMPTE ADMIN PAR DÉFAUT
 # ════════════════════════════════════════════════════════════════════
@@ -271,5 +279,9 @@ echo -e "  ${CYAN}URL            :${NC} http://localhost:3000"
 echo -e "  ${CYAN}Admin email    :${NC} admin@xflix.local"
 echo -e "  ${CYAN}Admin password :${NC} xflix2026"
 echo -e "  ${CYAN}Logs           :${NC} pm2 logs xflix"
-echo -e "  ${CYAN}Contrôle       :${NC} pm2 [start|stop|restart|status] xflix"
+echo -e "  ${CYAN}Contrôle PM2   :${NC} pm2 [start|stop|restart|status] xflix"
+echo ""
+echo -e "  ${YELLOW}⚠  Avant le premier scan, vérifiez MEDIA_DIR dans .env${NC}"
+echo -e "     Chemin actuel : ${MEDIA_DIR_VAL:-non défini}"
+echo -e "     Pour modifier : ${BOLD}nano .env${NC}"
 echo ""

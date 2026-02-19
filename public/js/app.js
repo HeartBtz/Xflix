@@ -73,11 +73,16 @@ async function apiFetch(url, retries = 3, delay = 400) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const r = await fetch(url, { headers: authHeaders() });
+      // Retry on 503 (Busy — server overloaded with thumb generation)
+      if (r.status === 503 && attempt < retries) {
+        await new Promise(res => setTimeout(res, delay * attempt));
+        continue;
+      }
       if (!r.ok) throw new Error(`API error ${r.status}`);
       return await r.json();
     } catch(e) {
       if (attempt === retries) throw e;
-      // Retry uniquement sur les erreurs réseau (Failed to fetch, NetworkError)
+      // Retry on network errors (Failed to fetch, NetworkError)
       if (e instanceof TypeError) {
         await new Promise(res => setTimeout(res, delay * attempt));
       } else {
@@ -462,6 +467,10 @@ async function openPerformer(encodedName) {
     $('performerMeta').textContent = 'Erreur lors du chargement';
   }
 
+  // Load tag filter scoped to this performer + reset selection
+  const tagSel = $('filterVideoTag');
+  if (tagSel) tagSel.value = '';
+  loadVideoTagFilter(name);
   switchTab('videos');
 }
 
@@ -586,10 +595,12 @@ if ($('filterVideoTag')) $('filterVideoTag').addEventListener('change', () => lo
   $(id).addEventListener('change', () => loadVideos(1));
 });
 
-// Populate tag filter dropdown from API
-async function loadVideoTagFilter() {
+// Populate tag filter dropdown from API.
+// If performerName is given, scopes tag counts to that performer.
+async function loadVideoTagFilter(performerName) {
   try {
-    const { data } = await apiFetch(`${API}/tags`);
+    const qs = performerName ? `?performer=${encodeURIComponent(performerName)}` : '';
+    const { data } = await apiFetch(`${API}/tags${qs}`);
     const sel = $('filterVideoTag');
     if (!sel) return;
     sel.innerHTML = '<option value="">Tous</option>';
@@ -602,14 +613,15 @@ async function loadVideoTagFilter() {
   } catch(e) { /* ignore if no tags yet */ }
 }
 
-// Infinite scroll observer on sentinel
+// Infinite scroll observer on sentinel (debounced / guarded)
+let _scrollLoading = false;
 const videoScrollObserver = new IntersectionObserver((entries) => {
-  if (entries[0].isIntersecting && state.currentPage === 'performer') {
-    const totalPages = Math.ceil((state.videoTotal || 0) / state.videoLimit);
-    if (state.videoPage < totalPages) {
-      loadVideos(state.videoPage + 1, true);
-    }
-  }
+  if (!entries[0].isIntersecting || state.currentPage !== 'performer') return;
+  if (_scrollLoading) return; // already loading
+  const totalPages = Math.ceil((state.videoTotal || 0) / state.videoLimit);
+  if (state.videoPage >= totalPages) return;
+  _scrollLoading = true;
+  loadVideos(state.videoPage + 1, true).finally(() => { _scrollLoading = false; });
 }, { rootMargin: '200px' });
 
 const _sentinel = $('videoScrollSentinel');

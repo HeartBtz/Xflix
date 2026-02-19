@@ -233,15 +233,32 @@ router.post('/media/:id/view', async (req, res) => {
 /* ─── Tags ─────────────────────────────────────────────────── */
 
 // GET /api/tags — list all tags with usage counts
+// Optional ?performer=Name to scope counts to a single performer
 router.get('/tags', async (req, res) => {
   try {
-    const [rows] = await pool.query(`
-      SELECT t.id, t.name, COUNT(mt.media_id) AS count
-      FROM tags t LEFT JOIN media_tags mt ON mt.tag_id = t.id
-      GROUP BY t.id, t.name
-      HAVING count > 0
-      ORDER BY count DESC, t.name
-    `);
+    const performer = req.query.performer;
+    let rows;
+    if (performer) {
+      [rows] = await pool.query(`
+        SELECT t.id, t.name, COUNT(mt.media_id) AS count
+        FROM tags t
+        JOIN media_tags mt ON mt.tag_id = t.id
+        JOIN media m ON m.id = mt.media_id
+        JOIN performers p ON p.id = m.performer_id
+        WHERE p.name = ?
+        GROUP BY t.id, t.name
+        HAVING count > 0
+        ORDER BY count DESC, t.name
+      `, [performer]);
+    } else {
+      [rows] = await pool.query(`
+        SELECT t.id, t.name, COUNT(mt.media_id) AS count
+        FROM tags t LEFT JOIN media_tags mt ON mt.tag_id = t.id
+        GROUP BY t.id, t.name
+        HAVING count > 0
+        ORDER BY count DESC, t.name
+      `);
+    }
     res.json({ data: rows });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

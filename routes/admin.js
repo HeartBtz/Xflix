@@ -547,6 +547,91 @@ router.post('/clean-media', async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════════
+   PURGE COURTES VIDÉOS
+   ══════════════════════════════════════════════════════════════════ */
+// POST /admin/purge-short-videos
+// Body: { max_duration: number (secondes), dry_run: bool }
+router.post('/purge-short-videos', async (req, res) => {
+  const { max_duration = 120, dry_run = true } = req.body || {};
+  const maxSec = Math.max(1, Number(max_duration));
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  let closed = false;
+  const send = d => { if (!closed) try { res.write(`data: ${JSON.stringify(d)}\n\n`); if (res.flush) res.flush(); } catch(_) {} };
+  const heartbeat = setInterval(() => { if (!closed) try { res.write(': keep-alive\n\n'); if (res.flush) res.flush(); } catch(_) {} }, 10000);
+  res.on('close', () => { closed = true; clearInterval(heartbeat); });
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, file_path, duration FROM media WHERE type = 'video' AND duration > 0 AND duration < ? ORDER BY duration ASC`,
+      [maxSec]
+    );
+
+    const totalMins = Math.floor(maxSec / 60);
+    const totalSecs = maxSec % 60;
+    const threshold = totalMins + 'min' + (totalSecs ? totalSecs + 's' : '');
+    send({ status: 'found', count: rows.length, dry_run,
+      line: `${rows.length} vidéo(s) de moins de ${threshold} trouvée(s)` });
+
+    if (!rows.length) {
+      send({ status: 'done', dry_run, deleted: 0, total: 0, line: '\n✅ Aucune vidéo à supprimer.' });
+      if (!closed) res.end();
+      return;
+    }
+
+    // Aperçu : liste toujours les fichiers
+    for (const r of rows) {
+      const m = Math.floor(r.duration / 60);
+      const s = Math.floor(r.duration % 60);
+      send({ status: 'preview', id: r.id,
+        line: `  [${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}] ${path.basename(r.file_path)}` });
+    }
+
+    if (dry_run) {
+      send({ status: 'done', dry_run: true, deleted: 0, total: rows.length,
+        line: `\n📋 SIMULATION — ${rows.length} vidéo(s) seraient supprimées.\nDécoche "dry-run" et clique sur Supprimer pour les effacer réellement.` });
+      if (!closed) res.end();
+      return;
+    }
+
+    // Suppression réelle
+    let deleted = 0;
+    const errors = [];
+    send({ status: 'started', total: rows.length, line: `\n🗑 Suppression de ${rows.length} vidéo(s)…` });
+
+    for (const r of rows) {
+      if (closed) break;
+      try {
+        await pool.query('DELETE FROM media WHERE id = ?', [r.id]);
+        try { await fs.promises.unlink(r.file_path); } catch(e) { if (e.code !== 'ENOENT') errors.push({ id: r.id, error: e.message }); }
+        const thumbPath = path.join(THUMB_DIR, `v_${r.id}.jpg`);
+        try { await fs.promises.unlink(thumbPath); } catch(_) {}
+        deleted++;
+        send({ status: 'progress', done: deleted, total: rows.length, id: r.id,
+          line: `  ✓ [${deleted}/${rows.length}] ${path.basename(r.file_path)}` });
+      } catch(e) {
+        errors.push({ id: r.id, error: e.message });
+        send({ status: 'error_item', id: r.id, error: e.message,
+          line: `  ❌ ${path.basename(r.file_path)} — ${e.message}` });
+      }
+    }
+
+    send({ status: 'done', dry_run: false, deleted, total: rows.length, errors: errors.length,
+      line: `\n✅ ${deleted} vidéo(s) supprimée(s)${errors.length ? ` — ${errors.length} erreur(s)` : ''}.` });
+    if (!closed) res.end();
+  } catch(e) {
+    send({ status: 'error', error: e.message, line: `❌ Erreur : ${e.message}` });
+    if (!closed) res.end();
+  } finally {
+    clearInterval(heartbeat);
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════════
    MEDIA MANAGEMENT
    ══════════════════════════════════════════════════════════════════ */
 router.delete('/media/:id', async (req, res) => {

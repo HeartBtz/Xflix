@@ -143,6 +143,27 @@
         </div>
 
         <div class="admin-card">
+          <h3>✂️ Supprimer les courtes vidéos</h3>
+          <p class="muted">Supprime toutes les vidéos dont la durée connue est inférieure au seuil. Les vidéos sans durée (non encore enrichies) sont ignorées.</p>
+          <div class="form-row" style="margin-bottom:14px;align-items:center;gap:16px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:8px;font-size:.95rem">
+              Durée max :
+              <input type="number" id="shortVidMinutes" class="input" value="2" min="1" max="120" style="width:72px"> min
+            </label>
+          </div>
+          <div class="btn-row" style="margin-bottom:12px">
+            <button class="btn btn-primary" id="shortVidPreviewBtn">👁 Aperçu</button>
+            <button class="btn btn-danger" id="shortVidDeleteBtn">🗑 Supprimer</button>
+            <button class="btn btn-danger hidden" id="shortVidCancelBtn">⏹ Annuler</button>
+          </div>
+          <div id="shortVidProgress" class="progress-wrap hidden">
+            <div class="progress-bar"><div class="progress-fill" id="shortVidFill"></div></div>
+            <span id="shortVidLabel"></span>
+          </div>
+          <div id="shortVidLog" class="log-box hidden"></div>
+        </div>
+
+        <div class="admin-card">
           <h3>🧹 Nettoyage des médias</h3>
           <p class="muted">Détecte les entrées DB sans fichier sur disque, les fichiers non indexés et les miniatures orphelines.</p>
           <div class="form-row" style="margin-bottom:14px">

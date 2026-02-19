@@ -894,6 +894,89 @@
     cleanBtn.disabled = false;
   });
 
+  /* ── Purge courtes vidéos ── */
+  const shortVidPreviewBtn = document.getElementById('shortVidPreviewBtn');
+  const shortVidDeleteBtn  = document.getElementById('shortVidDeleteBtn');
+  const shortVidCancelBtn  = document.getElementById('shortVidCancelBtn');
+  const shortVidMinutes    = document.getElementById('shortVidMinutes');
+  const shortVidProgress   = document.getElementById('shortVidProgress');
+  const shortVidFill       = document.getElementById('shortVidFill');
+  const shortVidLabel      = document.getElementById('shortVidLabel');
+  const shortVidLog        = document.getElementById('shortVidLog');
+  let shortVidReader = null;
+
+  async function runPurgeShortVids(dry_run) {
+    const maxSec = Math.max(1, Number(shortVidMinutes.value) || 2) * 60;
+    shortVidPreviewBtn.disabled = true;
+    shortVidDeleteBtn.disabled  = true;
+    shortVidCancelBtn.classList.remove('hidden');
+    shortVidProgress.classList.remove('hidden');
+    shortVidFill.style.width = '5%';
+    shortVidLabel.textContent = 'Analyse…';
+    shortVidLog.classList.remove('hidden');
+    shortVidLog.innerHTML = '';
+
+    try {
+      const res = await apiFetch('/admin/purge-short-videos', {
+        method: 'POST',
+        body: JSON.stringify({ max_duration: maxSec, dry_run }),
+      });
+      shortVidReader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await shortVidReader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith(':') || !line.startsWith('data:')) continue;
+          let d;
+          try { d = JSON.parse(line.slice(5)); } catch { continue; }
+          if (d.status === 'progress' && d.total > 0) {
+            shortVidFill.style.width = Math.round(d.done / d.total * 100) + '%';
+            shortVidLabel.textContent = `${d.done} / ${d.total}`;
+          }
+          if (d.status === 'done') { shortVidFill.style.width = '100%'; shortVidLabel.textContent = '✅ Terminé'; }
+          if (!d.line) continue;
+          const cls = d.status === 'done'       ? 'log-summary'
+                    : d.status === 'found'      ? 'log-phase'
+                    : d.status === 'started'    ? 'log-action'
+                    : d.status === 'error' || d.status === 'error_item' ? 'log-err'
+                    : d.status === 'preview'    ? 'log-muted'
+                    : '';
+          for (const l of d.line.split('\n')) {
+            if (l.trim()) logAppend(shortVidLog, cls, l);
+          }
+        }
+      }
+    } catch(e) { if (e.name !== 'AbortError') logAppend(shortVidLog, 'log-err', '❌ ' + e.message); }
+    shortVidReader = null;
+    shortVidPreviewBtn.disabled = false;
+    shortVidDeleteBtn.disabled  = false;
+    shortVidCancelBtn.classList.add('hidden');
+  }
+
+  shortVidPreviewBtn.addEventListener('click', () => runPurgeShortVids(true));
+
+  shortVidDeleteBtn.addEventListener('click', async () => {
+    const mins = Number(shortVidMinutes.value) || 2;
+    if (!confirm(`⚠️ Supprimer définitivement toutes les vidéos de moins de ${mins} minute(s) ?\nFichiers et miniatures seront effacés. Action irréversible.`)) return;
+    await runPurgeShortVids(false);
+  });
+
+  shortVidCancelBtn.addEventListener('click', async () => {
+    shortVidCancelBtn.disabled = true;
+    if (shortVidReader) try { await shortVidReader.cancel(); } catch(_) {}
+    logAppend(shortVidLog, 'log-err', '⏹ Interrompu');
+    shortVidCancelBtn.disabled = false;
+    shortVidCancelBtn.classList.add('hidden');
+    shortVidPreviewBtn.disabled = false;
+    shortVidDeleteBtn.disabled  = false;
+  });
+
   /* ═══════════════════════════════════════════
      SETTINGS
      ═══════════════════════════════════════════ */

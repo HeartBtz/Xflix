@@ -1,0 +1,380 @@
+const mysql = require('mysql2/promise');
+require('dotenv').config();
+
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  port: Number(process.env.DB_PORT) || 3306,
+  user: process.env.DB_USER || 'xflix',
+  password: process.env.DB_PASS || 'xflix2026',
+  database: process.env.DB_NAME || 'xflix',
+  waitForConnections: true,
+  connectionLimit: 20,
+  queueLimit: 0,
+  charset: 'utf8mb4',
+  // Performance tweaks
+  multipleStatements: false,
+  dateStrings: true,          // avoid Date object overhead
+  supportBigNumbers: true,
+  bigNumberStrings: false,
+});
+
+async function initSchema() {
+  const conn = await pool.getConnection();
+  try {
+
+    // ── Users ───────────────────────────────────────────────────────
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(100) NOT NULL UNIQUE,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        role ENUM('admin','member') DEFAULT 'member',
+        avatar VARCHAR(500),
+        bio TEXT,
+        reset_token VARCHAR(255),
+        reset_expires DATETIME,
+        last_login DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_users_email (email),
+        KEY idx_users_role (role)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // ── Settings (SMTP, site config) ─────────────────────────────────
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        \`key\` VARCHAR(100) PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // ── Performers (must exist before media) ──────────────────────────
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS performers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        dir_path TEXT NOT NULL,
+        video_count INT DEFAULT 0,
+        photo_count INT DEFAULT 0,
+        total_size BIGINT DEFAULT 0,
+        favorite TINYINT DEFAULT 0,
+        cover_media_id INT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_performers_name (name),
+        KEY idx_performers_favorite (favorite)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS media (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        performer_id INT NOT NULL,
+        filename VARCHAR(500) NOT NULL,
+        file_path VARCHAR(1000) NOT NULL,
+        type ENUM('video','photo') NOT NULL,
+        mime_type VARCHAR(100),
+        size BIGINT DEFAULT 0,
+        width INT,
+        height INT,
+        duration DOUBLE,
+        thumb_path VARCHAR(500),
+        favorite TINYINT DEFAULT 0,
+        view_count INT DEFAULT 0,
+        last_viewed DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY idx_file_path (file_path),
+        KEY idx_performer (performer_id),
+        KEY idx_type (type),
+        KEY idx_size (size),
+        KEY idx_favorite (favorite),
+        KEY idx_view_count (view_count),
+        FOREIGN KEY (performer_id) REFERENCES performers(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS performer_tags (
+        performer_id INT NOT NULL,
+        tag_id INT NOT NULL,
+        PRIMARY KEY (performer_id, tag_id),
+        FOREIGN KEY (performer_id) REFERENCES performers(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // ── Comments ─────────────────────────────────────────────────────
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS comments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        media_id INT NOT NULL,
+        content TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_comments_media (media_id),
+        KEY idx_comments_user (user_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // ── Reactions (like/dislike) ──────────────────────────────────────
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS media_reactions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        media_id INT NOT NULL,
+        type ENUM('like','dislike') NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY idx_reaction_user_media (user_id, media_id),
+        KEY idx_reaction_media (media_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // ── User Favorites ────────────────────────────────────────────────
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS user_favorites (
+        user_id INT NOT NULL,
+        media_id INT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, media_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+async function clearAll() {
+  await pool.query('SET FOREIGN_KEY_CHECKS = 0');
+  await pool.query('TRUNCATE TABLE performer_tags');
+  await pool.query('TRUNCATE TABLE tags');
+  await pool.query('TRUNCATE TABLE media');
+  await pool.query('TRUNCATE TABLE performers');
+  await pool.query('SET FOREIGN_KEY_CHECKS = 1');
+}
+
+async function upsertPerformer(name, dirPath) {
+  // One round-trip: INSERT … ON DUPLICATE KEY UPDATE sets LAST_INSERT_ID to the existing id
+  const [result] = await pool.query(
+    'INSERT INTO performers (name, dir_path) VALUES (?, ?) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)',
+    [name, dirPath]
+  );
+  return result.insertId;
+}
+
+/**
+ * Returns a Map of file_path → media_id for one performer.
+ */
+async function getExistingFilePaths(performerId) {
+  const [rows] = await pool.query(
+    'SELECT id, file_path FROM media WHERE performer_id = ?',
+    [performerId]
+  );
+  const map = new Map();
+  for (const r of rows) map.set(r.file_path, r.id);
+  return map;
+}
+
+/**
+ * Bulk-load ALL existing file paths across all performers in one query.
+ * Returns Map<performerId, Set<filePath>> — used by scanner to avoid 26 roundtrips.
+ */
+async function getAllExistingFilePaths() {
+  const [rows] = await pool.query('SELECT performer_id, file_path FROM media');
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.performer_id)) map.set(r.performer_id, new Set());
+    map.get(r.performer_id).add(r.file_path);
+  }
+  return map;
+}
+
+async function insertMedia(performerId, filename, filePath, type, mimeType, size, width, height, duration) {
+  try {
+    await pool.query(
+      `INSERT IGNORE INTO media (performer_id, filename, file_path, type, mime_type, size, width, height, duration)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [performerId, filename, filePath, type, mimeType, size, width || null, height || null, duration || null]
+    );
+  } catch(e) { /* ignore duplicate */ }
+}
+
+/**
+ * Batch-insert multiple media records in a single query.
+ * records: Array of [performerId, filename, filePath, type, mimeType, size, width, height, duration]
+ */
+async function batchInsertMedia(records) {
+  if (!records.length) return;
+  const placeholders = records.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+  const values = records.flat();
+  try {
+    await pool.query(
+      `INSERT IGNORE INTO media (performer_id, filename, file_path, type, mime_type, size, width, height, duration)
+       VALUES ${placeholders}`,
+      values
+    );
+  } catch(e) { /* ignore duplicates */ }
+}
+
+async function updatePerformerCounts() {
+  await pool.query(`
+    UPDATE performers SET
+      video_count = (SELECT COUNT(*) FROM media WHERE performer_id = performers.id AND type = 'video'),
+      photo_count = (SELECT COUNT(*) FROM media WHERE performer_id = performers.id AND type = 'photo'),
+      total_size  = (SELECT COALESCE(SUM(size),0) FROM media WHERE performer_id = performers.id)
+  `);
+  await pool.query(`
+    UPDATE performers p SET cover_media_id = (
+      SELECT id FROM media WHERE performer_id = p.id AND type = 'photo' LIMIT 1
+    ) WHERE p.cover_media_id IS NULL
+  `);
+}
+
+async function updateThumb(mediaId, thumbPath) {
+  await pool.query('UPDATE media SET thumb_path = ? WHERE id = ?', [thumbPath, mediaId]);
+}
+
+async function togglePerformerFavorite(performerId) {
+  await pool.query('UPDATE performers SET favorite = IF(favorite = 1, 0, 1) WHERE id = ?', [performerId]);
+  const [rows] = await pool.query('SELECT favorite FROM performers WHERE id = ?', [performerId]);
+  return rows[0] || null;
+}
+
+async function toggleMediaFavorite(mediaId) {
+  await pool.query('UPDATE media SET favorite = IF(favorite = 1, 0, 1) WHERE id = ?', [mediaId]);
+  const [rows] = await pool.query('SELECT favorite FROM media WHERE id = ?', [mediaId]);
+  return rows[0] || null;
+}
+
+async function incrementViewCount(mediaId) {
+  await pool.query('UPDATE media SET view_count = view_count + 1, last_viewed = NOW() WHERE id = ?', [mediaId]);
+}
+
+/* ── Settings ─────────────────────────────────────────────────── */
+
+async function getSetting(key, defaultValue = null) {
+  const [rows] = await pool.query('SELECT value FROM settings WHERE `key` = ?', [key]);
+  return rows.length ? rows[0].value : defaultValue;
+}
+
+async function setSetting(key, value) {
+  await pool.query(
+    'INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = ?, updated_at = NOW()',
+    [key, value, value]
+  );
+}
+
+async function getSettings(keys) {
+  if (!keys.length) return {};
+  const [rows] = await pool.query('SELECT `key`, value FROM settings WHERE `key` IN (?)', [keys]);
+  const out = {};
+  for (const r of rows) out[r.key] = r.value;
+  return out;
+}
+
+async function getAllSettings() {
+  const [rows] = await pool.query('SELECT `key`, value FROM settings');
+  const out = {};
+  for (const r of rows) out[r.key] = r.value;
+  return out;
+}
+
+/* ── Users ─────────────────────────────────────────────────────── */
+
+async function createUser(username, email, passwordHash, role = 'member') {
+  const [res] = await pool.query(
+    'INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)',
+    [username, email, passwordHash, role]
+  );
+  return res.insertId;
+}
+
+async function getUserByEmail(email) {
+  const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+  return rows[0] || null;
+}
+
+async function getUserById(id) {
+  const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
+  return rows[0] || null;
+}
+
+async function getUserByResetToken(token) {
+  const [rows] = await pool.query(
+    'SELECT * FROM users WHERE reset_token = ? AND reset_expires > NOW()',
+    [token]
+  );
+  return rows[0] || null;
+}
+
+async function setResetToken(userId, token, expires) {
+  await pool.query('UPDATE users SET reset_token = ?, reset_expires = ? WHERE id = ?', [token, expires, userId]);
+}
+
+async function clearResetToken(userId, newHash) {
+  await pool.query('UPDATE users SET reset_token = NULL, reset_expires = NULL, password_hash = ? WHERE id = ?', [newHash, userId]);
+}
+
+async function updateLastLogin(userId) {
+  await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [userId]);
+}
+
+async function updateUserProfile(userId, { username, bio, avatar } = {}) {
+  const parts = [];
+  const params = [];
+  if (username !== undefined) { parts.push('username = ?'); params.push(username); }
+  if (bio      !== undefined) { parts.push('bio = ?');      params.push(bio); }
+  if (avatar   !== undefined) { parts.push('avatar = ?');   params.push(avatar); }
+  if (!parts.length) return;
+  params.push(userId);
+  await pool.query(`UPDATE users SET ${parts.join(', ')} WHERE id = ?`, params);
+}
+
+async function listUsers({ page = 1, limit = 50 } = {}) {
+  const offset = (page - 1) * limit;
+  const [[{ total }]] = await pool.query('SELECT COUNT(*) as total FROM users');
+  const [rows] = await pool.query(
+    'SELECT id, username, email, role, avatar, created_at, last_login FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [limit, offset]
+  );
+  return { data: rows, total };
+}
+
+async function updateUserRole(userId, role) {
+  await pool.query('UPDATE users SET role = ? WHERE id = ?', [role, userId]);
+}
+
+async function deleteUser(userId) {
+  await pool.query('DELETE FROM users WHERE id = ?', [userId]);
+}
+
+async function countAdmins() {
+  const [[{ cnt }]] = await pool.query("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'");
+  return cnt;
+}
+
+module.exports = {
+  pool, initSchema, clearAll,
+  upsertPerformer, getExistingFilePaths, getAllExistingFilePaths, insertMedia, batchInsertMedia,
+  updatePerformerCounts, updateThumb, togglePerformerFavorite, toggleMediaFavorite,
+  incrementViewCount,
+  getSetting, setSetting, getSettings, getAllSettings,
+  createUser, getUserByEmail, getUserById, getUserByResetToken,
+  setResetToken, clearResetToken, updateLastLogin, updateUserProfile,
+  listUsers, updateUserRole, deleteUser, countAdmins,
+};

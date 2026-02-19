@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XFlix — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body class="admin-body">
+
+  <nav class="admin-nav">
+    <a class="admin-brand" href="/">🎬 XFlix</a>
+    <span class="admin-title">Panneau d'administration</span>
+    <div class="admin-nav-right">
+      <span id="adminUser" class="admin-user-badge"></span>
+      <a href="/" class="btn btn-sm">← Site</a>
+      <button class="btn btn-sm btn-danger" id="logoutBtn">Déconnexion</button>
+    </div>
+  </nav>
+
+  <div class="admin-layout">
+    <!-- Sidebar -->
+    <aside class="admin-sidebar">
+      <nav class="admin-sidenav">
+        <button class="sidenav-item active" data-tab="dashboard">📊 Tableau de bord</button>
+        <button class="sidenav-item" data-tab="users">👥 Utilisateurs</button>
+        <button class="sidenav-item" data-tab="media">🎬 Médias</button>
+        <button class="sidenav-item" data-tab="tools">🔧 Outils</button>
+        <button class="sidenav-item" data-tab="settings">⚙️ Paramètres</button>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main class="admin-main">
+
+      <!-- DASHBOARD -->
+      <section id="tab-dashboard" class="admin-tab active">
+        <h2>Tableau de bord</h2>
+        <div class="stats-grid" id="dashStats">
+          <div class="stat-card"><div class="stat-val" id="st-users">—</div><div class="stat-lbl">Utilisateurs</div></div>
+          <div class="stat-card"><div class="stat-val" id="st-media">—</div><div class="stat-lbl">Médias</div></div>
+          <div class="stat-card"><div class="stat-val" id="st-comments">—</div><div class="stat-lbl">Commentaires</div></div>
+          <div class="stat-card"><div class="stat-val" id="st-reactions">—</div><div class="stat-lbl">Réactions</div></div>
+        </div>
+      </section>
+
+      <!-- USERS -->
+      <section id="tab-users" class="admin-tab">
+        <div class="tab-header">
+          <h2>Utilisateurs</h2>
+          <input type="search" id="userSearch" class="input" placeholder="Rechercher…" style="max-width:250px">
+        </div>
+        <div class="table-wrap">
+          <table class="admin-table">
+            <thead><tr>
+              <th>ID</th><th>Nom</th><th>Email</th><th>Rôle</th>
+              <th>Dernière connexion</th><th>Créé le</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="usersBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="usersPagination"></div>
+      </section>
+
+      <!-- MEDIA -->
+      <section id="tab-media" class="admin-tab">
+        <h2>Médias &amp; Scan</h2>
+
+        <div class="admin-card">
+          <h3>Scanner les médias</h3>
+          <p class="muted">Lance un scan du dossier /home/coder/OF et indexe les nouveaux fichiers.</p>
+          <button class="btn btn-primary" id="scanBtn">▶ Démarrer le scan</button>
+          <button class="btn btn-danger hidden" id="scanCancelBtn">⏹ Annuler</button>
+          <div id="scanLog" class="log-box hidden"></div>
+        </div>
+
+        <div class="admin-card">
+          <h3>Générer les miniatures manquantes</h3>
+          <p class="muted">Génère les thumbnails ffmpeg/sharp pour les médias qui n'en ont pas encore.</p>
+          <button class="btn btn-primary" id="batchThumbBtn">▶ Générer les miniatures</button>
+          <button class="btn btn-danger hidden" id="batchThumbCancelBtn">⏹ Annuler</button>
+          <div id="thumbProgress" class="progress-wrap hidden">
+            <div class="progress-bar"><div class="progress-fill" id="thumbFill"></div></div>
+            <span id="thumbLabel"></span>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>🗑 Vider la base de données</h3>
+          <p class="muted">Supprime tous les médias et performers indexés. Les fichiers sur disque ne sont <strong>pas</strong> supprimés.</p>
+          <button class="btn btn-danger" id="clearDbBtn">🗑 Vider la BDD</button>
+        </div>
+      </section>
+
+      <!-- TOOLS -->
+      <section id="tab-tools" class="admin-tab">
+        <h2>Outils</h2>
+
+        <div class="admin-card">
+          <h3>🖼 Navigateur de médias</h3>
+          <p class="muted">Parcourez, filtrez et supprimez des fichiers spécifiques.</p>
+          <div class="mb-filters">
+            <select id="mbPerformer" class="input" style="max-width:220px"><option value="">Tous les performers</option></select>
+            <select id="mbType" class="input" style="max-width:140px">
+              <option value="">Tous les types</option>
+              <option value="photo">🖼 Photos</option>
+              <option value="video">🎬 Vidéos</option>
+            </select>
+            <input id="mbSearch" class="input" placeholder="Nom du fichier…" style="flex:1;min-width:160px">
+            <button class="btn btn-primary" id="mbLoadBtn">🔍 Rechercher</button>
+          </div>
+          <div class="mb-toolbar hidden" id="mbToolbar">
+            <button class="btn btn-sm" id="mbSelectAllBtn">Tout sélectionner</button>
+            <button class="btn btn-sm" id="mbUnselectBtn">✗ Décocher</button>
+            <span id="mbSelCount" class="dup-sel-count">0 sélectionné(s)</span>
+            <span class="dup-toolbar-sep"></span>
+            <button class="btn btn-sm btn-danger" id="mbDeleteBtn" disabled>🗑 Supprimer la sélection</button>
+          </div>
+          <div id="mbGrid" class="mb-grid hidden"></div>
+          <div id="mbPagination" class="pagination" style="margin-top:14px"></div>
+          <div id="mbProgress" class="progress-wrap hidden" style="margin-top:10px">
+            <div class="progress-bar"><div class="progress-fill" id="mbFill"></div></div>
+            <span id="mbLabel"></span>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>Détection des doublons</h3>
+          <p class="muted">Regroupe les fichiers de même taille et hash partiel (64 KB).</p>
+          <div class="form-row" style="margin-bottom:14px;align-items:center;gap:8px">
+            <label class="checkbox-label"><input type="radio" name="dupType" value="all"   checked> Tous</label>
+            <label class="checkbox-label"><input type="radio" name="dupType" value="video"> 🎬 Vidéos uniquement</label>
+            <label class="checkbox-label"><input type="radio" name="dupType" value="photo"> 🖼 Photos uniquement</label>
+          </div>
+          <button class="btn btn-primary" id="dupScanBtn">🔍 Analyser les doublons</button>
+          <button class="btn btn-danger hidden" id="dupCancelBtn">⏹ Annuler</button>
+          <div id="dupProgress" class="progress-wrap hidden">
+            <div class="progress-bar"><div class="progress-fill" id="dupFill"></div></div>
+            <span id="dupLabel"></span>
+          </div>
+          <div id="dupResults" class="dup-results hidden"></div>
+        </div>
+
+        <div class="admin-card">
+          <h3>🧹 Nettoyage des médias</h3>
+          <p class="muted">Détecte les entrées DB sans fichier sur disque, les fichiers non indexés et les miniatures orphelines.</p>
+          <div class="form-row" style="margin-bottom:14px">
+            <label class="checkbox-label">
+              <input type="checkbox" id="cleanDryRun" checked>
+              Simulation (dry-run) — aucune modification
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="cleanVerbose">
+              Mode verbeux (afficher chaque fichier)
+            </label>
+          </div>
+          <div class="btn-row" style="margin-bottom:12px">
+            <button class="btn btn-warning" id="cleanBtn">🧹 Analyser &amp; Nettoyer</button>
+            <button class="btn btn-danger hidden" id="cleanCancelBtn">⏹ Annuler</button>
+          </div>
+          <div id="cleanProgress" class="progress-wrap hidden">
+            <div class="progress-bar"><div class="progress-fill" id="cleanFill"></div></div>
+            <span id="cleanPhaseLabel"></span>
+          </div>
+          <div id="cleanLog" class="log-box hidden"></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="tab-settings" class="admin-tab">
+        <h2>Paramètres</h2>
+
+        <div class="admin-card">
+          <h3>Inscription</h3>
+          <label class="checkbox-label">
+            <input type="checkbox" id="allowReg">
+            Autoriser les nouvelles inscriptions
+          </label>
+          <button class="btn btn-primary" id="saveRegBtn" style="margin-top:12px">💾 Enregistrer</button>
+        </div>
+
+        <div class="admin-card">
+          <h3>Configuration SMTP (envoi d'emails)</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Serveur SMTP</label>
+              <input class="input" id="smtpHost" placeholder="smtp.gmail.com">
+            </div>
+            <div class="form-group">
+              <label>Port</label>
+              <input class="input" id="smtpPort" placeholder="587" type="number">
+            </div>
+            <div class="form-group">
+              <label>Utilisateur</label>
+              <input class="input" id="smtpUser" placeholder="you@gmail.com">
+            </div>
+            <div class="form-group">
+              <label>Mot de passe</label>
+              <input class="input" id="smtpPass" type="password" placeholder="••••••••">
+            </div>
+            <div class="form-group">
+              <label>Adresse expéditeur</label>
+              <input class="input" id="smtpFrom" placeholder="XFlix <no-reply@example.com>">
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label" style="margin-top:28px">
+                <input type="checkbox" id="smtpSecure"> SSL direct (port 465)
+              </label>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="saveSmtpBtn">💾 Enregistrer</button>
+            <button class="btn" id="testSmtpBtn">📧 Tester la connexion</button>
+          </div>
+          <div id="smtpTestResult" class="alert hidden"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

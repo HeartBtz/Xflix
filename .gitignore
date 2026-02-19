@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Environment secrets
+.env
+
+# Generated thumbnails (large binary files)
+data/thumbs/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Archives / build artifacts
+*.tar.gz
+*.zip
+*.tgz
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+*.swo

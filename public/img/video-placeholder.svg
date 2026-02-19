@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" fill="none">
+  <rect width="320" height="180" fill="#1f1f1f"/>
+  <rect x="130" y="65" width="60" height="50" rx="6" fill="#2a2a2a"/>
+  <polygon points="148,75 148,105 172,90" fill="#444"/>
+  <text x="160" y="150" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#555">Aucune miniature</text>
+</svg>

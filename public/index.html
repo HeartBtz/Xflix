@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XFlix</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<!-- ╔══════════════════ NAVBAR ══════════════════╗ -->
+<nav class="navbar">
+  <div class="nav-brand" id="navBrand">
+    <span class="brand-x">X</span><span class="brand-flix">Flix</span>
+  </div>
+  <div class="nav-links">
+    <button class="nav-link active" data-page="home" id="navHome">Accueil</button>
+    <button class="nav-link" data-page="favorites" id="navFavorites">❤️ Favoris</button>
+    <button class="nav-link" data-page="discover" id="navDiscover">🎲 Découvrir</button>
+  </div>
+  <div class="nav-search">
+    <div class="search-wrapper">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="text" id="searchInput" class="search-input" placeholder="Rechercher une performeuse…" autocomplete="off" />
+      <button class="search-clear" id="searchClear">✕</button>
+    </div>
+  </div>
+  <div class="nav-actions">
+    <button class="btn btn-ghost hidden" id="btnManage" title="Gérer la base de données">⚙️</button>
+    <button class="btn btn-ghost" id="btnStats" title="Statistiques">📊</button>
+    <!-- Auth area -->
+    <div class="auth-area" id="authArea">
+      <button class="btn btn-accent btn-sm" id="btnLogin">Se connecter</button>
+    </div>
+    <div class="user-menu hidden" id="userMenu">
+      <button class="user-menu-toggle" id="userMenuToggle">
+        <span class="user-avatar" id="userAvatar">👤</span>
+        <span class="user-uname" id="userUname"></span>
+        <span class="user-chevron">▾</span>
+      </button>
+      <div class="user-dropdown hidden" id="userDropdown">
+        <a class="dropdown-item" id="ddProfile">👤 Profil</a>
+        <a class="dropdown-item" id="ddFavorites">❤️ Mes favoris</a>
+        <a class="dropdown-item admin-only hidden" id="ddAdmin" href="/admin.html">🛡 Admin</a>
+        <div class="dropdown-sep"></div>
+        <a class="dropdown-item" id="ddLogout">🚪 Déconnexion</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ╔══════════════════ SCAN BANNER ══════════════════╗ -->
+<div class="scan-banner hidden" id="scanBanner">
+  <div class="scan-banner-inner">
+    <span class="scan-banner-text" id="scanBannerText">📡 Scan en cours…</span>
+    <div class="scan-banner-bar"><div class="scan-banner-fill" id="scanBannerFill"></div></div>
+    <button class="btn btn-sm btn-danger" id="scanBannerCancel">Annuler</button>
+  </div>
+</div>
+
+<!-- ╔══════════════════ HOME PAGE ══════════════════╗ -->
+<div id="homePage" class="page active">
+
+  <!-- Hero banner -->
+  <div class="hero">
+    <div class="hero-overlay"></div>
+    <div class="hero-content">
+      <h1>Votre collection <span class="text-gradient">privée</span></h1>
+      <p>Parcourez et regardez vos contenus en toute simplicité.</p>
+      <div class="hero-actions">
+        <button class="btn btn-accent btn-lg" id="heroShuffle">🎲 Découvrir au hasard</button>
+        <button class="btn btn-glass btn-lg hidden" id="heroManage">⚙️ Scanner les médias</button>
+      </div>
+    </div>
+    <div class="hero-stats" id="heroStats"></div>
+  </div>
+
+  <!-- Filters bar -->
+  <div class="filters-bar" id="filtersBar">
+    <div class="filters-inner">
+      <div class="filter-chips">
+        <button class="chip active" data-filter="all" id="chipAll">Toutes</button>
+        <button class="chip" data-filter="favorites" id="chipFavPerf">⭐ Favorites</button>
+        <button class="chip" data-filter="hasVideos" id="chipHasVids">🎬 Avec vidéos</button>
+        <button class="chip" data-filter="hasPhotos" id="chipHasPhotos">🖼 Avec photos</button>
+      </div>
+      <div class="filter-controls">
+        <select id="sortPerformers" class="select-styled">
+          <option value="name">Nom A→Z</option>
+          <option value="name|desc">Nom Z→A</option>
+          <option value="video_count|desc">+ de vidéos</option>
+          <option value="photo_count|desc">+ de photos</option>
+          <option value="total_size|desc">+ volumineux</option>
+          <option value="updated_at|desc">Récent</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Performers grid -->
+  <div class="section">
+    <div class="section-header">
+      <h2 id="sectionTitle">Toutes les performeuses</h2>
+      <span id="performerCount" class="badge"></span>
+    </div>
+    <div class="performers-grid" id="performersGrid">
+      <div class="loading-spinner">
+        <div class="spinner"></div>
+        <p>Chargement…</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════ FAVORITES PAGE ══════════════════╗ -->
+<div id="favoritesPage" class="page">
+  <div class="section" style="padding-top:calc(var(--nav-h) + 24px)">
+    <div class="section-header">
+      <h2 id="favPageTitle">❤️ Favoris</h2>
+    </div>
+    <div class="tabs-bar tabs-inline">
+      <button class="tab active" data-ftab="fav-videos" id="favTabVideos">🎬 Vidéos globales</button>
+      <button class="tab" data-ftab="fav-photos" id="favTabPhotos">🖼️ Photos globales</button>
+      <button class="tab" data-ftab="fav-performers" id="favTabPerformers">🎭 Performeuses</button>
+      <button class="tab personal-tab hidden" data-ftab="fav-my" id="favTabMy">🔒 Mes favoris</button>
+    </div>
+    <div id="favContent"></div>
+    <!-- Personal favorites sub-section -->
+    <div id="myFavContent" class="hidden"></div>
+  </div>
+</div>
+
+<!-- ╔══════════════════ DISCOVER PAGE ══════════════════╗ -->
+<div id="discoverPage" class="page">
+  <div class="section" style="padding-top:calc(var(--nav-h) + 24px)">
+    <div class="section-header">
+      <h2>🎲 Découvrir</h2>
+      <button class="btn btn-accent" id="reshuffleBtn">🔄 Recharger</button>
+    </div>
+
+    <div class="discover-section">
+      <h3 class="subsection-title">🎬 Vidéos aléatoires</h3>
+      <div class="media-grid videos-grid" id="randomVideosGrid"></div>
+    </div>
+
+    <div class="discover-section">
+      <h3 class="subsection-title">🖼️ Photos aléatoires</h3>
+      <div class="media-grid photos-grid" id="randomPhotosGrid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════ PERFORMER PAGE ══════════════════╗ -->
+<div id="performerPage" class="page">
+  <div class="performer-hero" id="performerHero">
+    <button class="btn-back" id="btnBack">← Retour</button>
+    <div class="performer-info">
+      <div class="performer-name-row">
+        <h1 id="performerName"></h1>
+        <button class="btn-fav-lg" id="btnFavPerformer" title="Ajouter aux favoris">♡</button>
+      </div>
+      <div class="performer-meta" id="performerMeta"></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs-bar">
+    <button class="tab active" data-tab="videos" id="tabVideos">
+      🎬 <span id="tabVideoCount">Vidéos</span>
+    </button>
+    <button class="tab" data-tab="photos" id="tabPhotos">
+      🖼️ <span id="tabPhotoCount">Photos</span>
+    </button>
+  </div>
+
+  <!-- Video filters -->
+  <div class="media-filters" id="videoFilters">
+    <div class="filters-inner">
+      <div class="filter-group">
+        <label>Trier par</label>
+        <select id="sortVideos" class="select-styled">
+          <option value="filename">Nom A→Z</option>
+          <option value="size|desc">Taille ↓</option>
+          <option value="size">Taille ↑</option>
+          <option value="duration|desc">Durée ↓</option>
+          <option value="duration">Durée ↑</option>
+          <option value="view_count|desc">+ vues</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Taille min</label>
+        <select id="filterVideoMinSize" class="select-styled">
+          <option value="">Toutes</option>
+          <option value="1048576">1 MB</option>
+          <option value="52428800">50 MB</option>
+          <option value="104857600">100 MB</option>
+          <option value="524288000">500 MB</option>
+          <option value="1073741824">1 GB</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Taille max</label>
+        <select id="filterVideoMaxSize" class="select-styled">
+          <option value="">Toutes</option>
+          <option value="52428800">50 MB</option>
+          <option value="104857600">100 MB</option>
+          <option value="524288000">500 MB</option>
+          <option value="1073741824">1 GB</option>
+          <option value="5368709120">5 GB</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Durée min</label>
+        <select id="filterVideoMinDur" class="select-styled">
+          <option value="">Toutes</option>
+          <option value="30">30s</option>
+          <option value="60">1 min</option>
+          <option value="300">5 min</option>
+          <option value="600">10 min</option>
+          <option value="1800">30 min</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Durée max</label>
+        <select id="filterVideoMaxDur" class="select-styled">
+          <option value="">Toutes</option>
+          <option value="60">1 min</option>
+          <option value="300">5 min</option>
+          <option value="600">10 min</option>
+          <option value="1800">30 min</option>
+          <option value="3600">1 heure</option>
+        </select>
+      </div>
+      <label class="filter-toggle">
+        <input type="checkbox" id="filterFavVideos" />
+        <span>❤️ Favoris seuls</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Photo filters -->
+  <div class="media-filters hidden" id="photoFilters">
+    <div class="filters-inner">
+      <div class="filter-group">
+        <label>Trier par</label>
+        <select id="sortPhotos" class="select-styled">
+          <option value="filename">Nom A→Z</option>
+          <option value="size|desc">Taille ↓</option>
+          <option value="size">Taille ↑</option>
+        </select>
+      </div>
+      <label class="filter-toggle">
+        <input type="checkbox" id="filterFavPhotos" />
+        <span>❤️ Favoris seuls</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Video grid -->
+  <div id="videoTab" class="media-section">
+    <div class="media-grid videos-grid" id="videosGrid"></div>
+    <div class="pagination" id="videoPagination"></div>
+  </div>
+
+  <!-- Photo grid -->
+  <div id="photoTab" class="media-section hidden">
+    <div class="media-grid photos-grid" id="photosGrid"></div>
+    <div class="pagination" id="photoPagination"></div>
+  </div>
+</div>
+
+<!-- ╔══════════════════ VIDEO PLAYER MODAL ══════════════════╗ -->
+<div class="modal-overlay hidden" id="videoModal">
+  <div class="video-modal">
+    <!-- Top bar -->
+    <div class="vp-topbar">
+      <div class="vp-topbar-left">
+        <button class="vp-btn" id="videoPrev" title="Précédent (Shift+←)">⏮</button>
+        <button class="vp-btn" id="videoNext" title="Suivant (Shift+→)">⏭</button>
+      </div>
+      <div class="vp-title-wrap">
+        <span class="vp-title" id="videoTitle"></span>
+        <span class="vp-meta" id="videoMeta"></span>
+      </div>
+      <div class="vp-topbar-right">
+        <!-- Reactions -->
+        <button class="vp-btn vp-btn-reaction" id="vpLikeBtn" title="J'aime">👍 <span id="vpLikeCount">0</span></button>
+        <button class="vp-btn vp-btn-reaction" id="vpDislikeBtn" title="Je n'aime pas">👎 <span id="vpDislikeCount">0</span></button>
+        <button class="vp-btn vp-btn-fav" id="favCurrentVideo" title="Favori (F)">♡</button>
+        <button class="vp-btn" id="closeVideo" title="Fermer (Esc)">✕</button>
+      </div>
+    </div>
+    <!-- Video container -->
+    <div class="vp-container" id="vpContainer">
+      <video id="videoPlayer" preload="metadata" playsinline></video>
+      <!-- Big play/pause overlay -->
+      <div class="vp-overlay" id="vpOverlay">
+        <div class="vp-big-play" id="vpBigPlay">▶</div>
+      </div>
+      <!-- Seek indicator -->
+      <div class="vp-seek-indicator hidden" id="vpSeekIndicator"></div>
+      <!-- Custom controls -->
+      <div class="vp-controls" id="vpControls">
+        <div class="vp-progress-wrap" id="vpProgressWrap">
+          <div class="vp-progress-bg">
+            <div class="vp-progress-buffered" id="vpBuffered"></div>
+            <div class="vp-progress-played" id="vpPlayed"></div>
+          </div>
+          <div class="vp-progress-hover" id="vpProgressHover">
+            <span class="vp-progress-tooltip" id="vpProgressTooltip">0:00</span>
+          </div>
+        </div>
+        <div class="vp-controls-row">
+          <div class="vp-controls-left">
+            <button class="vp-btn" id="vpPlayPause" title="Play/Pause (Espace)">▶</button>
+            <button class="vp-btn" id="vpSkipBack" title="-10s (←)">⏪</button>
+            <button class="vp-btn" id="vpSkipForward" title="+10s (→)">⏩</button>
+            <div class="vp-volume-wrap">
+              <button class="vp-btn" id="vpMute" title="Muet (M)">🔊</button>
+              <input type="range" class="vp-volume-slider" id="vpVolume" min="0" max="1" step="0.05" value="1" />
+            </div>
+            <span class="vp-time" id="vpTime">0:00 / 0:00</span>
+          </div>
+          <div class="vp-controls-right">
+            <select class="vp-speed" id="vpSpeed" title="Vitesse">
+              <option value="0.25">0.25x</option>
+              <option value="0.5">0.5x</option>
+              <option value="0.75">0.75x</option>
+              <option value="1" selected>1x</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+              <option value="3">3x</option>
+            </select>
+            <button class="vp-btn" id="vpPiP" title="Picture-in-Picture (P)">🖼️</button>
+            <button class="vp-btn" id="vpFullscreen" title="Plein écran (Entrée)">⛶</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Comments section -->
+    <div class="vp-comments" id="vpComments">
+      <div class="comments-header">
+        <h4>💬 Commentaires</h4>
+        <button class="btn btn-sm" id="commentsToggle">Afficher</button>
+      </div>
+      <div class="comments-body hidden" id="commentsBody">
+        <div class="comment-form" id="commentForm">
+          <textarea class="comment-input" id="commentInput" placeholder="Votre commentaire…" rows="2"></textarea>
+          <button class="btn btn-accent btn-sm" id="commentSubmit">Envoyer</button>
+        </div>
+        <div class="comments-list" id="commentsList"></div>
+        <button class="btn btn-sm load-more-comments hidden" id="loadMoreComments">Charger plus</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════ PHOTO LIGHTBOX ══════════════════╗ -->
+<div class="modal-overlay hidden" id="photoModal">
+  <div class="photo-modal">
+    <button class="btn-icon lightbox-nav left" id="photoPrev">❮</button>
+    <div class="lightbox-content">
+      <img id="lightboxImg" src="" alt="" />
+      <div class="lightbox-info">
+        <span id="lightboxTitle"></span>
+        <button class="btn-fav-sm" id="favCurrentPhoto" title="Favori">♡</button>
+        <span id="lightboxCounter"></span>
+      </div>
+    </div>
+    <button class="btn-icon lightbox-nav right" id="photoNext">❯</button>
+    <button class="btn-icon close-lightbox" id="closePhoto">✕</button>
+  </div>
+</div>
+
+<!-- ╔══════════════════ MANAGE MODAL ══════════════════╗ -->
+<div class="modal-overlay hidden" id="manageModal">
+  <div class="manage-modal">
+    <div class="modal-header">
+      <h2>⚙️ Gestion</h2>
+      <button class="btn-icon btn-close" id="closeManage">✕</button>
+    </div>
+    <div class="manage-content">
+      <div class="manage-card">
+        <h3>📡 Scanner les médias</h3>
+        <p>Analyse le répertoire configuré et indexe les fichiers.</p>
+        <div class="progress-container hidden" id="scanProgress">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <p id="progressText">Initialisation…</p>
+        </div>
+        <div class="manage-actions">
+          <button class="btn btn-accent" id="btnScanAll">🚀 Tout scanner</button>
+          <button class="btn btn-accent btn-photos" id="btnScanPhotos">🖼 Photos uniquement</button>
+          <button class="btn btn-accent btn-videos" id="btnScanVideos">🎬 Vidéos uniquement</button>
+          <button class="btn btn-danger" id="btnCancelScan" style="display:none">⏹ Annuler le scan</button>
+        </div>
+        <div class="manage-actions" style="margin-top:8px">
+          <button class="btn btn-danger" id="btnClear">🗑️ Vider la BDD</button>
+        </div>
+      </div>
+      <div class="manage-card">
+        <h3>📁 Répertoire des médias</h3>
+        <p>Configuré via <code>.env</code> → <code>MEDIA_DIR</code></p>
+        <code class="code-block" id="mediaDir"></code>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════ STATS MODAL ══════════════════╗ -->
+<div class="modal-overlay hidden" id="statsModal">
+  <div class="stats-modal">
+    <div class="modal-header">
+      <h2>📊 Statistiques</h2>
+      <button class="btn-icon btn-close" id="closeStats">✕</button>
+    </div>
+    <div class="stats-grid" id="statsGrid"></div>
+  </div>
+</div>
+
+<!-- Auth Modal -->
+<div class="modal-overlay hidden" id="authModal">
+  <div class="auth-modal">
+    <button class="btn-icon btn-close" id="closeAuth">✕</button>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin" data-auth="login">Connexion</button>
+      <button class="auth-tab" id="tabRegister" data-auth="register">Inscription</button>
+    </div>
+    <!-- Login -->
+    <form class="auth-form" id="loginForm">
+      <h2>Se connecter</h2>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" class="auth-input" id="loginEmail" placeholder="vous@exemple.com" required>
+      </div>
+      <div class="form-group">
+        <label>Mot de passe</label>
+        <input type="password" class="auth-input" id="loginPassword" placeholder="••••••••" required>
+      </div>
+      <div class="auth-error hidden" id="loginError"></div>
+      <button type="submit" class="btn btn-accent btn-full">Connexion</button>
+      <p class="auth-link"><a href="#" id="forgotPwLink">Mot de passe oublié ?</a></p>
+    </form>
+    <!-- Register -->
+    <form class="auth-form hidden" id="registerForm">
+      <h2>Créer un compte</h2>
+      <div class="form-group">
+        <label>Nom d'utilisateur</label>
+        <input type="text" class="auth-input" id="regUsername" placeholder="VotreNom" required minlength="3">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" class="auth-input" id="regEmail" placeholder="vous@exemple.com" required>
+      </div>
+      <div class="form-group">
+        <label>Mot de passe</label>
+        <input type="password" class="auth-input" id="regPassword" placeholder="Minimum 8 caractères" required minlength="8">
+      </div>
+      <div class="auth-error hidden" id="registerError"></div>
+      <button type="submit" class="btn btn-accent btn-full">Créer le compte</button>
+    </form>
+    <!-- Forgot password -->
+    <form class="auth-form hidden" id="forgotForm">
+      <h2>Mot de passe oublié</h2>
+      <p class="auth-hint">Entrez votre email pour recevoir un lien de réinitialisation.</p>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" class="auth-input" id="forgotEmail" placeholder="vous@exemple.com" required>
+      </div>
+      <div class="auth-error hidden" id="forgotError"></div>
+      <button type="submit" class="btn btn-accent btn-full">Envoyer le lien</button>
+      <p class="auth-link"><a href="#" id="backToLogin">← Retour à la connexion</a></p>
+    </form>
+    <!-- Reset password (via link token) -->
+    <form class="auth-form hidden" id="resetForm">
+      <h2>Nouveau mot de passe</h2>
+      <p class="auth-hint">Choisissez un nouveau mot de passe pour votre compte.</p>
+      <input type="hidden" id="resetToken">
+      <div class="form-group">
+        <label>Nouveau mot de passe</label>
+        <input type="password" class="auth-input" id="resetPassword" placeholder="Minimum 6 caractères" required minlength="6">
+      </div>
+      <div class="form-group">
+        <label>Confirmer</label>
+        <input type="password" class="auth-input" id="resetPasswordConfirm" placeholder="Répéter le mot de passe" required>
+      </div>
+      <div class="auth-error hidden" id="resetError"></div>
+      <button type="submit" class="btn btn-accent btn-full">Définir le mot de passe</button>
+    </form>
+  </div>
+</div>
+
+<!-- Profile Modal -->
+<div class="modal-overlay hidden" id="profileModal">
+  <div class="auth-modal profile-modal-inner">
+    <button class="btn-icon btn-close" id="closeProfile">✕</button>
+    <h2 style="margin-bottom:20px">👤 Mon profil</h2>
+
+    <!-- Profile info -->
+    <div class="profile-avatar-row">
+      <div class="profile-avatar-big" id="profileAvatarBig"></div>
+      <div>
+        <div class="profile-role-badge" id="profileRoleBadge"></div>
+        <div class="profile-email-small" id="profileEmailSmall"></div>
+      </div>
+    </div>
+
+    <div class="profile-section">
+      <h3>Informations</h3>
+      <div class="form-group">
+        <label>Nom d'utilisateur</label>
+        <input type="text" class="auth-input" id="profileUsername" minlength="2">
+      </div>
+      <div class="form-group">
+        <label>Bio (optionnel)</label>
+        <textarea class="auth-input" id="profileBio" rows="2" placeholder="Quelques mots sur vous…" style="resize:vertical"></textarea>
+      </div>
+      <div class="auth-error hidden" id="profileError"></div>
+      <button class="btn btn-accent" id="saveProfileBtn">💾 Enregistrer</button>
+    </div>
+
+    <div class="profile-section">
+      <h3>Changer le mot de passe</h3>
+      <div class="form-group">
+        <label>Mot de passe actuel</label>
+        <input type="password" class="auth-input" id="profileCurrentPw" placeholder="••••••••">
+      </div>
+      <div class="form-group">
+        <label>Nouveau mot de passe</label>
+        <input type="password" class="auth-input" id="profileNewPw" placeholder="Minimum 6 caractères">
+      </div>
+      <div class="form-group">
+        <label>Confirmer</label>
+        <input type="password" class="auth-input" id="profileNewPwConfirm" placeholder="Répéter">
+      </div>
+      <div class="auth-error hidden" id="profilePwError"></div>
+      <button class="btn btn-accent" id="changePwBtn">🔒 Changer le mot de passe</button>
+    </div>
+
+    <div class="profile-section">
+      <h3>Compte</h3>
+      <p class="auth-hint">Membre depuis : <span id="profileCreatedAt"></span></p>
+      <p class="auth-hint">Dernière connexion : <span id="profileLastLogin"></span></p>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

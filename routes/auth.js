@@ -25,17 +25,8 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const rateLimit = require('express-rate-limit');
-
-// Limite uniquement les routes exposées au brute-force
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 min
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests — try again later' },
-});
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const {
   createUser, getUserByEmail, getUserById, getUserByResetToken,
   setResetToken, clearResetToken, updateLastLogin, updateUserProfile,
@@ -43,6 +34,16 @@ const {
 } = require('../db');
 const { signToken, requireAuth } = require('../middleware/auth');
 const { sendPasswordReset } = require('../services/mail');
+
+// Limite uniquement les routes exposées au brute-force
+// (/config et /me ne sont pas limités — ils sont appelés à chaque chargement)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 min
+  max: 30,                    // 30 tentatives par fenêtre
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests — try again later' },
+});
 
 /* ── Register ─────────────────────────────────────────────────── */
 router.post('/register', authLimiter, async (req, res) => {

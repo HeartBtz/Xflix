@@ -1,6 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   XFlix Admin Panel — JS v2.0
-   Redesigned with encoding support
+   XFlix Admin Panel
    ═══════════════════════════════════════════════════════════ */
 (function () {
   'use strict';

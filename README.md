@@ -17,13 +17,12 @@ Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 7. [Directory layout](#directory-layout)
 8. [How the scanner works](#how-the-scanner-works)
 9. [Thumbnail system](#thumbnail-system)
-10. [Encoding](#encoding)
-11. [API reference](#api-reference)
-12. [Admin panel](#admin-panel)
-13. [Keyboard shortcuts](#keyboard-shortcuts)
-14. [Troubleshooting](#troubleshooting)
-15. [Contributing](#contributing)
-16. [License](#license)
+10. [API reference](#api-reference)
+11. [Admin panel](#admin-panel)
+12. [Keyboard shortcuts](#keyboard-shortcuts)
+13. [Troubleshooting](#troubleshooting)
+14. [Contributing](#contributing)
+15. [License](#license)
 
 ---
 
@@ -56,7 +55,6 @@ Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 - **Batch thumbnail** generation with live progress
 - **User management**: change role, delete account
 - **SMTP settings** editable at runtime (no restart needed)
-- **Encoding** subsystem: re-encode to H.265 / AV1 with hardware or CPU
 
 ---
 
@@ -86,11 +84,7 @@ Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 
 ### v2.0
 
-- New video re-encoding subsystem: encode to H.265 (HEVC) or AV1 via Admin → Encodage.
-- Automatic hardware detection (NVIDIA NVENC, Intel QSV, VA-API) with CPU fallback.
-- Worker pool + queue management for multi-GPU / concurrent encodes.
-- Real-time progress (SSE) and job history with cancel / retry / delete.
-- Admin UI completely redesigned (modern dark theme, frosted navbar, Encodage tab).
+- Admin UI completely redesigned (modern dark theme, frosted navbar).
 
 ### v1.2
 
@@ -127,7 +121,6 @@ Browser (Vanilla JS SPA)
       │ media_reactions   │
       │ user_favorites    │
       │ settings          │ ◄── SMTP + app config (key/value)
-      │ encode_jobs       │ ◄── encoding queue + history
       └──────────────────┘
 ```
 
@@ -151,7 +144,7 @@ xflix/
 │   ├── api.js          Public REST API (performers, media, search, stats…)
 │   ├── auth.js         Register, login, JWT, password reset
 │   ├── social.js       Comments, reactions, per-user favourites
-│   ├── admin.js        Scan, users, settings, duplicates, clean, encoding
+│   ├── admin.js        Scan, users, settings, duplicates, clean
 │   └── stream.js       Video range streaming, photos, thumbnails, downloads
 │
 ├── middleware/
@@ -311,7 +304,6 @@ Copy `.env.example` to `.env`. All fields are optional except those marked **req
 | `PORT` | `3000` | HTTP port |
 | `MEDIA_DIR` | `/home/coder/OF` | **Required.** Absolute path to your media root. Each immediate subdirectory becomes a performer. |
 | `THUMB_DIR` | `<repo>/data/thumbs` | Where thumbnails are stored. |
-| `ENCODE_DIR` | `<repo>/data/encoded` | Where encoded videos are stored. |
 | `DB_HOST` | `localhost` | MariaDB host |
 | `DB_PORT` | `3306` | MariaDB port |
 | `DB_USER` | `xflix` | MariaDB user |
@@ -399,66 +391,6 @@ Thumbnails are stored in `data/thumbs/`:
 
 **Batch generation** runs automatically after every scan (last 300 media, concurrency 3).
 Trigger manually from **Admin → Générer les miniatures**.
-
----
-
-## Encoding
-
-XFlix includes a re-encoding subsystem accessible from Admin → Encodage.
-
-- Target codecs: **H.265 (HEVC)** and **AV1**
-- Backends: NVIDIA NVENC, Intel QSV, VA-API (AMD/Intel), CPU (`libx265`, `libsvtav1`, `libaom-av1`)
-- Real-time progress via SSE, job queue, cancel / retry / delete, optional replacement of originals
-
-**API endpoints** (admin JWT required):
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/admin/encode/capabilities` | Hardware detection + available presets |
-| GET | `/admin/encode/status` | Current queue status |
-| GET | `/admin/encode/history` | Paginated job history |
-| POST | `/admin/encode/enqueue` | Enqueue media IDs |
-| POST | `/admin/encode/cancel/:id` | Cancel a job |
-| POST | `/admin/encode/cancel-all` | Cancel all jobs |
-| POST | `/admin/encode/retry/:id` | Retry a failed job |
-| DELETE | `/admin/encode/job/:id` | Delete job record |
-| POST | `/admin/encode/workers` | Set max worker count |
-| GET | `/admin/encode/videos` | Searchable video list |
-| GET | `/admin/encode/codec-stats` | Counts + sizes by codec |
-| GET | `/admin/encode/events` | SSE stream for real-time progress |
-
-**Requirements:** FFmpeg 6+ with desired encoders compiled in. NVENC needs NVIDIA drivers. VA-API needs `/dev/dri`. CPU encoders always available as fallback.
-
-**Quick curl examples:**
-
-```bash
-# Authenticate
-curl -X POST http://localhost:3000/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@xflix.local","password":"<from .admin-creds>"}'
-# → { "token": "ey..." }
-export TOKEN="ey..."
-
-# Hardware capabilities
-curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/admin/encode/capabilities
-
-# List videos (filter by codec)
-curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:3000/admin/encode/videos?limit=20&codec=h264"
-
-# Enqueue
-curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  http://localhost:3000/admin/encode/enqueue \
-  -d '{"mediaIds":[12,45,67],"presetId":"cpu_h265","quality":"balanced","replaceOriginal":false}'
-
-# Real-time SSE progress
-curl -N -H "Authorization: Bearer $TOKEN" http://localhost:3000/admin/encode/events
-```
-
-### Screenshots
-
-![Admin Encodage tab](docs/screenshots/encodage.png)
-![Admin Dashboard](docs/screenshots/dashboard.png)
 
 ---
 
@@ -564,7 +496,6 @@ All endpoints return JSON. Errors always include `{ "error": "..." }`.
 | DELETE | `/admin/duplicates/:id` | Delete one duplicate |
 | POST | `/admin/clean-media` | **SSE** — orphan / unindexed scan |
 | POST | `/admin/purge-short-videos` | **SSE** — delete short videos |
-| GET/POST/DELETE | `/admin/encode/*` | See [Encoding](#encoding) |
 
 > **SSE endpoints** stream `data: {...}\n\n` events. The last event always carries `status: "done"` or `status: "error"`.
 
@@ -578,7 +509,6 @@ Access via the ⚙️ icon (visible only when logged in as admin).
 |---|---|
 | **Scan** | Index new media files. Progress shown live via SSE. |
 | **Miniatures** | Generate thumbnails for media without one. |
-| **Encodage** | Re-encode videos to H.265 / AV1 with hardware or CPU backends. |
 | **Doublons** | Detect duplicate files using fast partial hashing. |
 | **Nettoyage** | Find orphaned DB records, unindexed disk files, stale thumbs. |
 | **Purge** | Delete videos shorter than a configurable duration. |

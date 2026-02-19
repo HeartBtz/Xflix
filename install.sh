@@ -217,8 +217,8 @@ fi
 # ════════════════════════════════════════════════════════════════════
 step "5/7 · Répertoires"
 
-mkdir -p data/thumbs data/encoded
-ok "data/thumbs et data/encoded créés."
+mkdir -p data/thumbs
+ok "data/thumbs créé."
 
 # ════════════════════════════════════════════════════════════════════
 # 6. COMPTE ADMINISTRATEUR

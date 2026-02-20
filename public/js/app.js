@@ -1907,6 +1907,33 @@ window.renderSingleVideoCard = renderSingleVideoCard;
 function openRelatedVideo(id) { openVideoById(id); }
 window.openRelatedVideo = openRelatedVideo;
 
+/* ── Mobile bottom nav ──────────────────────────────────────── */
+function updateMobileNav(page) {
+  $qa('.mobile-nav-item').forEach(item => {
+    item.classList.toggle('active', item.dataset.page === page);
+  });
+}
+
+$qa('.mobile-nav-item').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const page = btn.dataset.page;
+    // Delegate to the existing desktop nav link handler
+    const desktopLink = $q(`.nav-link[data-page="${page}"]`);
+    if (desktopLink) desktopLink.click();
+    updateMobileNav(page);
+  });
+});
+
+// Patch showPage to also sync the mobile nav highlights
+const _origShowPage = showPage;
+// Override can't reassign const, so we hook via nav-link clicks instead.
+// Keep mobile nav in sync whenever desktop nav updates:
+$qa('.nav-link').forEach(link => {
+  link.addEventListener('click', () => {
+    updateMobileNav(link.dataset.page);
+  });
+});
+
 /* ── Theme toggle ───────────────────────────────────────────── */
 function initTheme() {
   const stored = localStorage.getItem('xflix_theme');

@@ -23,14 +23,15 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 if (!process.env.DB_PASS) {
-  console.warn('  ⚠️  DB_PASS non défini — utilisation du mot de passe par défaut. Définissez DB_PASS dans .env.');
+  console.error('  ❌  DB_PASS non défini dans .env — la connexion échouera.');
+  console.error('  Lancez install.sh ou configurez manuellement le fichier .env.');
 }
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER || 'xflix',
-  password: process.env.DB_PASS || 'xflix2026',
+  password: process.env.DB_PASS || '',
   database: process.env.DB_NAME || 'xflix',
   waitForConnections: true,
   connectionLimit: 20,

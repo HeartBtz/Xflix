@@ -76,11 +76,21 @@ function requireAuth(req, res, next) {
   }
 }
 
-/** Middleware: require admin role */
+/** Middleware: require admin role (re-validates from DB on each request) */
 function requireAdmin(req, res, next) {
-  requireAuth(req, res, () => {
-    if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-    next();
+  requireAuth(req, res, async () => {
+    try {
+      // Re-check the role from DB to handle demotions during JWT lifetime
+      const freshUser = await getUserById(req.user.id);
+      if (!freshUser || freshUser.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+      req.user.role = freshUser.role; // sync with fresh DB state
+      next();
+    } catch (e) {
+      console.error('[AUTH] requireAdmin DB check failed:', e.message);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   });
 }
 

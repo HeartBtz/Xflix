@@ -35,6 +35,9 @@ Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 - **Photo lightbox** with full-screen view and keyboard navigation
 - **Discover** page with random videos + photos
 - Global **search** with advanced filters (size, duration, type, favourite…)
+- **Fully responsive** — optimised layouts for phone, tablet, desktop and ultra-wide
+- **Mobile bottom navigation** on small screens
+- **Distraction-free fullscreen** — suggestions and comments auto-hidden in fullscreen
 
 ### Accounts & social
 
@@ -60,7 +63,32 @@ Node.js · Express · MariaDB · Vanilla JS frontend (zero build step)
 
 ## Changelog
 
-### v2.1 (current)
+### v2.2 (current)
+
+**Responsive design & UX**
+
+- **Full responsive layout** for all screen sizes: ultra-wide (>1920px), large desktop,
+  tablet landscape (≤1024px), tablet portrait (≤768px), phone (≤480px), small phone (≤360px).
+- **Mobile bottom navigation bar** — visible below 768px, replaces hidden desktop nav links.
+- **Fullscreen player cleanup** — related videos and comments are automatically hidden when
+  the video player enters fullscreen mode, giving 100% of the screen to the video.
+- Video player controls, modals, grids, cards, and filters all adapt to each breakpoint.
+
+**Security hardening**
+
+- **`requireAdmin` re-validates role from DB** — previously the JWT-embedded role was trusted
+  for up to 7 days. Now every admin-only request checks the `users` table, so demotions
+  take effect immediately.
+- **Removed hardcoded DB password fallback** (`db.js`) — the pool no longer silently uses
+  `xflix2026` when `DB_PASS` is missing. An explicit error is logged instead.
+- **HTML injection fix in password reset emails** — `username` and `resetUrl` are now escaped
+  before interpolation into the HTML template (`services/mail.js`).
+- **Stored XSS mitigation in comments** — HTML tags are stripped from comment content on write
+  (`routes/social.js`).
+- **LIKE wildcard escaping** — `%` and `_` characters in search input are now escaped to
+  prevent unexpected wildcard matching in performer/media search queries.
+
+### v2.1
 
 - **Rate limiter fix**: `authLimiter` is now scoped to `POST /login`, `/register`,
   `/forgot-password`, `/reset-password` only. Previously it was mounted on the entire

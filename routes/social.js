@@ -63,7 +63,8 @@ router.post('/comments/:mediaId', requireAuth, async (req, res) => {
   try {
     const mediaId = Number(req.params.mediaId);
     const { content: rawContent } = req.body || {};
-    const content = rawContent?.trim();
+    // Strip HTML tags to prevent stored XSS
+    const content = rawContent?.trim()?.replace(/<[^>]*>/g, '');
     if (!content) return res.status(400).json({ error: 'content required' });
     if (content.length > 2000) return res.status(400).json({ error: 'Comment too long (max 2000 chars)' });
 

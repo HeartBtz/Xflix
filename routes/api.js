@@ -54,6 +54,11 @@ const MEDIA_DIR = process.env.MEDIA_DIR || '/home/coder/OF';
 /** Safe numeric coercion — returns null for NaN/undefined, allowing callers to skip the filter */
 function safeInt(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
 
+/** Escape SQL LIKE wildcards (% and _) in user input */
+function escapeLike(str) {
+  return str.replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 /**
  * Enrich an array of media rows with their tags.
  * Adds a `tags: string[]` field to each item in-place (returns new array).
@@ -80,7 +85,7 @@ router.get('/performers', async (req, res) => {
     let query = `SELECT p.* FROM performers p WHERE 1=1`;
     const params = [];
 
-    if (q) { query += ` AND p.name LIKE ?`; params.push(`%${q}%`); }
+    if (q) { query += ` AND p.name LIKE ?`; params.push(`%${escapeLike(q)}%`); }
     if (minVideos) { query += ` AND p.video_count >= ?`; params.push(safeInt(minVideos)); }
     if (minPhotos) { query += ` AND p.photo_count >= ?`; params.push(safeInt(minPhotos)); }
     if (favorite === '1') { query += ` AND p.favorite = 1`; }
@@ -301,7 +306,7 @@ router.get('/search', async (req, res) => {
     let query = `SELECT m.*, p.name AS performer_name FROM media m JOIN performers p ON p.id = m.performer_id WHERE 1=1`;
     const params = [];
 
-    if (q) { query += ` AND (m.filename LIKE ? OR p.name LIKE ?)`; params.push(`%${q}%`, `%${q}%`); }
+    if (q) { query += ` AND (m.filename LIKE ? OR p.name LIKE ?)`; params.push(`%${escapeLike(q)}%`, `%${escapeLike(q)}%`); }
     if (type && ['video', 'photo'].includes(type)) { query += ` AND m.type = ?`; params.push(type); }
     if (minSize) { query += ` AND m.size >= ?`; params.push(safeInt(minSize)); }
     if (maxSize) { query += ` AND m.size <= ?`; params.push(safeInt(maxSize)); }

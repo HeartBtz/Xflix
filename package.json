@@ -1,6 +1,6 @@
 {
   "name": "xflix",
-  "version": "1.3.0",
+  "version": "2.2.0",
   "description": "Self-hosted Netflix-like media browser for local video/photo collections",
   "main": "server.js",
   "license": "MIT",

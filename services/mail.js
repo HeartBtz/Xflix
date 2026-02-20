@@ -82,16 +82,29 @@ async function sendMail({ to, subject, html, text }) {
   });
 }
 
+/** Escape HTML special characters to prevent injection in email templates */
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function sendPasswordReset(email, username, resetUrl) {
+  const safeUser = escapeHtml(username);
+  const safeUrl  = encodeURI(resetUrl);  // sanitise URL (preserves valid chars)
   return sendMail({
     to: email,
     subject: '🔑 XFlix — Réinitialisation de votre mot de passe',
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#141414;color:#fff;padding:32px;border-radius:8px">
         <h2 style="color:#e50914;margin:0 0 16px">XFlix</h2>
-        <p>Bonjour <strong>${username}</strong>,</p>
+        <p>Bonjour <strong>${safeUser}</strong>,</p>
         <p>Une demande de réinitialisation de mot de passe a été faite pour votre compte.</p>
-        <a href="${resetUrl}" style="display:inline-block;margin:20px 0;background:#e50914;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:bold">
+        <a href="${safeUrl}" style="display:inline-block;margin:20px 0;background:#e50914;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:bold">
           Réinitialiser mon mot de passe
         </a>
         <p style="color:#999;font-size:12px">Ce lien expire dans 1 heure.<br>Si vous n'avez pas fait cette demande, ignorez cet email.</p>

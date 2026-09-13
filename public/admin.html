@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>XFlix — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body class="admin-body">
+
+  <nav class="admin-nav">
+    <a class="admin-brand" href="/">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      XFlix
+    </a>
+    <span class="admin-title">Administration</span>
+    <div class="admin-nav-right">
+      <span id="adminUser" class="admin-user-badge"></span>
+      <a href="/" class="btn btn-ghost btn-sm">← Retour</a>
+      <button class="btn btn-ghost btn-sm btn-danger-text" id="logoutBtn">Déconnexion</button>
+    </div>
+  </nav>
+
+  <div class="admin-layout">
+    <!-- Sidebar -->
+    <aside class="admin-sidebar">
+      <nav class="admin-sidenav">
+        <button class="sidenav-item active" data-tab="dashboard">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Tableau de bord
+        </button>
+        <button class="sidenav-item" data-tab="users">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Utilisateurs
+        </button>
+        <button class="sidenav-item" data-tab="media">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M10 8l6 4-6 4V8z" fill="currentColor"/></svg>
+          Médias
+        </button>
+        <button class="sidenav-item" data-tab="tools">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Outils
+        </button>
+        <button class="sidenav-item" data-tab="settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Paramètres
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main class="admin-main">
+
+      <!-- DASHBOARD -->
+      <section id="tab-dashboard" class="admin-tab active">
+        <div class="tab-title-row"><h2>Tableau de bord</h2></div>
+        <div class="stats-grid" id="dashStats">
+          <div class="stat-card stat-blue">
+            <div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+            <div class="stat-content"><div class="stat-val" id="st-users">—</div><div class="stat-lbl">Utilisateurs</div></div>
+          </div>
+          <div class="stat-card stat-red">
+            <div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M10 8l6 4-6 4V8z"/></svg></div>
+            <div class="stat-content"><div class="stat-val" id="st-media">—</div><div class="stat-lbl">Médias</div></div>
+          </div>
+          <div class="stat-card stat-green">
+            <div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+            <div class="stat-content"><div class="stat-val" id="st-comments">—</div><div class="stat-lbl">Commentaires</div></div>
+          </div>
+          <div class="stat-card stat-yellow">
+            <div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
+            <div class="stat-content"><div class="stat-val" id="st-reactions">—</div><div class="stat-lbl">Réactions</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- USERS -->
+      <section id="tab-users" class="admin-tab">
+        <div class="tab-title-row">
+          <h2>Utilisateurs</h2>
+          <div class="tab-title-actions">
+            <input type="search" id="userSearch" class="input input-search" aria-label="Rechercher un utilisateur" placeholder="Rechercher…">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="admin-table">
+            <thead><tr>
+              <th>ID</th><th>Nom</th><th>Email</th><th>Rôle</th>
+              <th>Dernière connexion</th><th>Créé le</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="usersBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="usersPagination"></div>
+      </section>
+
+      <!-- MEDIA -->
+      <section id="tab-media" class="admin-tab">
+        <div class="tab-title-row"><h2>Médias &amp; Scan</h2></div>
+
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg></div>
+            <div><h3>Scanner les médias</h3><p class="muted">Lance un scan du dossier et indexe les nouveaux fichiers.</p></div>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-primary" id="scanBtn">▶ Démarrer le scan</button>
+            <button class="btn btn-danger hidden" id="scanCancelBtn">⏹ Annuler</button>
+          </div>
+          <div id="scanLog" class="log-box hidden"></div>
+        </div>
+
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-green"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
+            <div><h3>Générer les miniatures manquantes</h3><p class="muted">Génère les thumbnails pour les médias qui n'en ont pas encore.</p></div>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-primary" id="batchThumbBtn">▶ Générer</button>
+            <button class="btn btn-danger hidden" id="batchThumbCancelBtn">⏹ Annuler</button>
+          </div>
+          <div id="thumbProgress" class="progress-wrap hidden">
+            <div class="progress-bar"><div class="progress-fill" id="thumbFill"></div></div>
+            <span id="thumbLabel"></span>
+          </div>
+        </div>
+
+        <div class="admin-card card-danger-outline">
+          <div class="card-header">
+            <div class="card-icon ci-red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+            <div><h3>Vider la base de données</h3><p class="muted">Supprime tous les médias et performers indexés. Fichiers sur disque conservés.</p></div>
+          </div>
+          <div class="card-actions"><button class="btn btn-danger" id="clearDbBtn">🗑 Vider la BDD</button></div>
+        </div>
+      </section>
+
+      <!-- TOOLS -->
+      <section id="tab-tools" class="admin-tab">
+        <div class="tab-title-row"><h2>Outils</h2></div>
+
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
+            <div><h3>Navigateur de médias</h3><p class="muted">Parcourez, filtrez et supprimez des fichiers spécifiques.</p></div>
+          </div>
+          <div class="mb-filters">
+            <select id="mbPerformer" class="input" aria-label="Performeuse" style="max-width:220px"><option value="">Tous les performers</option></select>
+            <select id="mbType" class="input" aria-label="Type de média" style="max-width:140px">
+              <option value="">Tous les types</option>
+              <option value="photo">🖼 Photos</option>
+              <option value="video">🎬 Vidéos</option>
+            </select>
+            <input id="mbSearch" class="input" aria-label="Nom du fichier" placeholder="Nom du fichier…" style="flex:1;min-width:160px">
+            <button class="btn btn-primary" id="mbLoadBtn">🔍 Rechercher</button>
+          </div>
+          <div class="mb-toolbar hidden" id="mbToolbar">
+            <button class="btn btn-sm" id="mbSelectAllBtn">Tout sélectionner</button>
+            <button class="btn btn-sm" id="mbUnselectBtn">✗ Décocher</button>
+            <span id="mbSelCount" class="dup-sel-count">0 sélectionné(s)</span>
+            <span class="dup-toolbar-sep"></span>
+            <button class="btn btn-sm btn-danger" id="mbDeleteBtn" disabled>🗑 Supprimer</button>
+          </div>
+          <div id="mbGrid" class="mb-grid hidden"></div>
+          <div id="mbPagination" class="pagination" style="margin-top:14px"></div>
+          <div id="mbProgress" class="progress-wrap hidden" style="margin-top:10px">
+            <div class="progress-bar"><div class="progress-fill" id="mbFill"></div></div>
+            <span id="mbLabel"></span>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-yellow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
+            <div><h3>Détection des doublons</h3><p class="muted">Regroupe les fichiers de même taille et hash partiel.</p></div>
+          </div>
+          <div class="form-row" style="margin-bottom:14px;align-items:center;gap:8px">
+            <label class="checkbox-label"><input type="radio" name="dupType" value="all" checked> Tous</label>
+            <label class="checkbox-label"><input type="radio" name="dupType" value="video"> Vidéos</label>
+            <label class="checkbox-label"><input type="radio" name="dupType" value="photo"> Photos</label>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-primary" id="dupScanBtn">🔍 Analyser</button>
+            <button class="btn btn-danger hidden" id="dupCancelBtn">⏹ Annuler</button>
+          </div>
+          <div id="dupProgress" class="progress-wrap hidden">
+            <div class="progress-bar"><div class="progress-fill" id="dupFill"></div></div>
+            <span id="dupLabel"></span>
+          </div>
+          <div id="dupResults" class="dup-results hidden"></div>
+        </div>
+
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg></div>
+            <div><h3>Supprimer les courtes vidéos</h3><p class="muted">Supprime les vidéos dont la durée est inférieure au seuil.</p></div>
+          </div>
+          <div class="form-row" style="margin-bottom:14px;align-items:center;gap:16px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:8px;font-size:.95rem">
+              Durée max : <input type="number" id="shortVidMinutes" class="input" value="2" min="1" max="120" style="width:72px"> min
+            </label>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-primary" id="shortVidPreviewBtn">👁 Aperçu</button>
+            <button class="btn btn-danger" id="shortVidDeleteBtn">🗑 Supprimer</button>
+            <button class="btn btn-danger hidden" id="shortVidCancelBtn">⏹ Annuler</button>
+          </div>
+          <div id="shortVidProgress" class="progress-wrap hidden">
+            <div class="progress-bar"><div class="progress-fill" id="shortVidFill"></div></div>
+            <span id="shortVidLabel"></span>
+          </div>
+          <div id="shortVidLog" class="log-box hidden"></div>
+        </div>
+
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-green"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></div>
+            <div><h3>Nettoyage des médias</h3><p class="muted">Détecte entrées DB sans fichier, fichiers non indexés, miniatures orphelines.</p></div>
+          </div>
+          <div class="form-row" style="margin-bottom:14px">
+            <label class="checkbox-label"><input type="checkbox" id="cleanDryRun" checked> Simulation (dry-run)</label>
+            <label class="checkbox-label"><input type="checkbox" id="cleanVerbose"> Mode verbeux</label>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-warning" id="cleanBtn">🧹 Analyser &amp; Nettoyer</button>
+            <button class="btn btn-danger hidden" id="cleanCancelBtn">⏹ Annuler</button>
+          </div>
+          <div id="cleanProgress" class="progress-wrap hidden">
+            <div class="progress-bar"><div class="progress-fill" id="cleanFill"></div></div>
+            <span id="cleanPhaseLabel"></span>
+          </div>
+          <div id="cleanLog" class="log-box hidden"></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="tab-settings" class="admin-tab">
+        <div class="tab-title-row"><h2>Paramètres</h2></div>
+
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></div>
+            <div><h3>Inscription</h3><p class="muted">Contrôle les inscriptions utilisateurs.</p></div>
+          </div>
+          <label class="checkbox-label" style="margin-bottom:12px"><input type="checkbox" id="allowReg"> Autoriser les nouvelles inscriptions</label>
+          <div class="card-actions"><button class="btn btn-primary" id="saveRegBtn">💾 Enregistrer</button></div>
+        </div>
+
+        <div class="admin-card">
+          <div class="card-header">
+            <div class="card-icon ci-yellow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+            <div><h3>Configuration SMTP</h3><p class="muted">Paramètres du serveur d'envoi d'emails.</p></div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group"><label>Serveur SMTP</label><input class="input" id="smtpHost" placeholder="smtp.gmail.com"></div>
+            <div class="form-group"><label>Port</label><input class="input" id="smtpPort" placeholder="587" type="number"></div>
+            <div class="form-group"><label>Utilisateur</label><input class="input" id="smtpUser" placeholder="you@gmail.com"></div>
+            <div class="form-group"><label>Mot de passe</label><input class="input" id="smtpPass" type="password" placeholder="Mot de passe SMTP" aria-describedby="smtpSecretHint"><p id="smtpSecretHint" class="muted">Sans nouveau mot de passe, modifier le serveur, le port, SSL/TLS ou l’utilisateur efface le secret enregistré. Un champ vide ne le conserve que si ces paramètres restent inchangés.</p></div>
+            <div class="form-group"><label>Adresse expéditeur</label><input class="input" id="smtpFrom" placeholder="XFlix <no-reply@example.com>"></div>
+            <div class="form-group"><label class="checkbox-label" style="margin-top:28px"><input type="checkbox" id="smtpSecure"> SSL direct (port 465)</label></div>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-primary" id="saveSmtpBtn">💾 Enregistrer</button>
+            <button class="btn btn-ghost" id="testSmtpBtn">📧 Tester</button>
+          </div>
+          <div id="smtpTestResult" class="alert hidden"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/js/accessibility.js"></script>
+  <script src="/js/stream-events.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+{
+  "name": "xflix",
+  "version": "2.3.0",
+  "description": "Self-hosted Netflix-like media browser for local video/photo collections",
+  "main": "server.js",
+  "license": "MIT",
+  "author": "HeartBtz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HeartBtz/Xflix"
+  },
+  "homepage": "https://github.com/HeartBtz/Xflix",
+  "bugs": {
+    "url": "https://github.com/HeartBtz/Xflix/issues"
+  },
+  "keywords": [
+    "media-server",
+    "self-hosted",
+    "streaming",
+    "local-media",
+    "node",
+    "express",
+    "mariadb",
+    "ffmpeg"
+  ],
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "scan": "node cli.js scan",
+    "clear": "node cli.js clear",
+    "test": "node --test test/*.test.js",
+    "test:integration": "node --test test/integration.test.js",
+    "test:browser": "node scripts/test-browser.cjs",
+    "check": "npm test && node --check server.js && node --check public/js/app.js && node --check public/js/admin.js",
+    "audit": "npm audit --omit=dev"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "compression": "^1.8.2",
+    "content-disposition": "^2.0.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^4.22.2",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.24.4",
+    "nodemailer": "^9.1.1",
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "playwright": "1.63.0"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

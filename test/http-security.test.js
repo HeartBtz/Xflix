@@ -8,6 +8,7 @@ process.env.MEDIA_DIR = '/tmp';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { app } = require('../server');
+const { version } = require('../package.json');
 
 let server;
 let baseUrl;
@@ -33,6 +34,13 @@ test('serves the SPA with restrictive browser security headers', async () => {
   assert.doesNotMatch(csp, /script-src[^;]*'unsafe-inline'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+});
+
+test('reports the exact deployed application version without authentication', async () => {
+  const response = await fetch(`${baseUrl}/health`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: 'ok', version });
+  assert.equal(response.headers.get('cache-control'), 'no-store');
 });
 
 test('blocks unauthenticated API and media access before touching the database', async () => {

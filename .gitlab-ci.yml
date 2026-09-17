@@ -1,0 +1,85 @@
+stages:
+  - validate
+  - build
+
+default:
+  interruptible: true
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"'
+    - when: never
+
+.validation-rules: &validation-rules
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"'
+
+validate:
+  <<: *validation-rules
+  stage: validate
+  image: node:24.20.0-bookworm
+  tags:
+    - homelab-docker
+  variables:
+    GIT_STRATEGY: fetch
+    XFLIX_INTEGRATION: 1
+    DB_HOST: mariadb
+    DB_PORT: 3306
+    DB_NAME: xflix_test_ci
+    DB_USER: xflix_test
+    DB_PASS: xflix-disposable-test-only
+    MARIADB_ROOT_PASSWORD: xflix-disposable-test-root-only
+    MARIADB_DATABASE: xflix_test_ci
+    MARIADB_USER: xflix_test
+    MARIADB_PASSWORD: xflix-disposable-test-only
+  services:
+    - name: mariadb:10.11
+      alias: mariadb
+  script:
+    - test -f /.dockerenv && test "$(id -u)" = 0
+    - apt-get update && apt-get install -y --no-install-recommends ffmpeg
+    - chown -R node:node "$CI_PROJECT_DIR"
+    - >-
+      runuser -u node -- env -i HOME=/home/node PATH=/usr/local/bin:/usr/bin:/bin
+      XFLIX_INTEGRATION="$XFLIX_INTEGRATION" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT"
+      DB_NAME="$DB_NAME" DB_USER="$DB_USER" DB_PASS="$DB_PASS"
+      bash scripts/ci-validate.sh
+
+browser:
+  <<: *validation-rules
+  stage: validate
+  image:
+    name: mcr.microsoft.com/playwright:v1.63.0-noble
+  tags:
+    - homelab-docker
+  variables:
+    GIT_STRATEGY: fetch
+  script:
+    - test -f /.dockerenv && test "$(id -u)" = 0
+    - chown -R pwuser:pwuser "$CI_PROJECT_DIR"
+    - >-
+      runuser -u pwuser -- env -i HOME=/home/pwuser PATH=/usr/local/bin:/usr/bin:/bin
+      PLAYWRIGHT_BROWSERS_PATH=/ms-playwright bash -c
+      'npm ci --include=dev --ignore-scripts --no-audit --no-fund && npm run test:browser'
+
+build-release:
+  stage: build
+  image: node:24.20.0-bookworm
+  tags:
+    - homelab-docker
+  needs: [validate, browser]
+  script:
+    - test "$CI_COMMIT_REF_PROTECTED" = "true"
+    - scripts/build-release.sh "$CI_COMMIT_TAG"
+  artifacts:
+    name: "xflix-$CI_COMMIT_TAG"
+    expire_in: 30 days
+    paths:
+      - dist/*.tar.gz
+      - dist/*.sha256
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"'

@@ -424,22 +424,24 @@ test('installer ordering and privilege boundaries remain explicit', () => {
 });
 
 test('CI and test images pin the same approved Node 24 patch', () => {
-  const ciVersion = /node-version: (\d+\.\d+\.\d+)/.exec(read('.github/workflows/ci.yml'))?.[1];
+  const ciVersion = /image: node:(\d+\.\d+\.\d+)-bookworm/.exec(read('.gitlab-ci.yml'))?.[1];
   const testVersion = /^FROM node:(\d+\.\d+\.\d+)-bookworm$/m.exec(read('test/Dockerfile'))?.[1];
   assert.deepEqual([ciVersion, testVersion], ['24.20.0', '24.20.0']);
   checkNodeVersion(`v${ciVersion}`);
 });
 
-test('CI validates SQL and browser fixtures without deployment access', () => {
-  const ci = read('.github/workflows/ci.yml');
-  assert.doesNotMatch(ci, /deploy|environment:|root@|\b(?:ssh|scp|sftp)\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/);
-  assert.match(ci, /mariadb:\n\s+image: mariadb:10\.11/);
+test('GitLab CI validates MR and protected SemVer-tag releases without deployment access', () => {
+  const ci = read('.gitlab-ci.yml');
+  assert.doesNotMatch(ci, /deploy-production|environment:|root@|\b(?:ssh|scp|sftp)\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+  assert.match(ci, /CI_PIPELINE_SOURCE == "merge_request_event"/);
+  assert.match(ci, /CI_COMMIT_TAG =~ \/\^v\\d\+\\\.\\d\+\\\.\\d\+\$\//);
+  assert.match(ci, /test "\$CI_COMMIT_REF_PROTECTED" = "true"/);
+  assert.match(ci, /services:\n\s+- name: mariadb:10\.11/);
   assert.match(ci, /XFLIX_INTEGRATION: 1/);
-  assert.match(ci, /DB_HOST: localhost/);
-  assert.match(ci, /run: node scripts\/install-smoke\.cjs/);
-  assert.match(ci, /run: npm run check --ignore-scripts/);
-  assert.match(ci, /container: mcr\.microsoft\.com\/playwright:v1\.63\.0-noble/);
-  assert.match(ci, /run: npm run test:browser/);
+  assert.match(ci, /DB_HOST: mariadb/);
+  assert.match(ci, /bash scripts\/ci-validate\.sh/);
+  assert.match(ci, /name: mcr\.microsoft\.com\/playwright:v1\.63\.0-noble/);
+  assert.match(ci, /npm run test:browser/);
   const validation = read('scripts/ci-validate.sh');
   assert.match(validation, /\[\[ \$EUID != 0 \]\]/);
   assert.ok(validation.indexOf('npm ci ') < validation.indexOf('npm run check'));
@@ -453,13 +455,13 @@ test('all installer Node helpers parse without running them', () => {
   }
 });
 
-test('HTTP health distinguishes JSON auth routing from SPA, redirects, failures and timeouts', async t => {
-  let status = 401;
+test('HTTP health requires the exact release version and rejects SPA, redirects, failures and timeouts', async t => {
+  let status = 200;
   let contentType = 'application/json; charset=utf-8';
-  let body = '{"error":"Authentication required"}';
+  let body = `{"status":"ok","version":"${require('../package.json').version}"}`;
   let hang = false;
   const server = http.createServer((request, response) => {
-    assert.equal(request.url, '/auth/me');
+    assert.equal(request.url, '/health');
     assert.equal(request.headers.authorization, undefined);
     if (hang) return;
     response.writeHead(status, { 'content-type': contentType });
@@ -469,14 +471,16 @@ test('HTTP health distinguishes JSON auth routing from SPA, redirects, failures 
   t.after(() => { server.closeAllConnections(); server.close(); });
   const port = server.address().port;
   await probe(port);
-  for (const badStatus of [200, 302, 403, 500, 503]) { status = badStatus; await assert.rejects(probe(port)); }
-  status = 401;
+  for (const badStatus of [201, 302, 401, 403, 500, 503]) { status = badStatus; await assert.rejects(probe(port)); }
+  status = 200;
   contentType = 'text/html';
   await assert.rejects(probe(port));
   contentType = 'application/json';
   body = '<html>SPA</html>';
   await assert.rejects(probe(port));
   body = '{}';
+  await assert.rejects(probe(port));
+  body = '{"status":"ok","version":"2.3.1"}';
   await assert.rejects(probe(port));
   body = 'x'.repeat(9000);
   await assert.rejects(probe(port));

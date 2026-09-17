@@ -24,6 +24,7 @@ const cors = require('cors');
 const compression = require('compression');
 const helmet = require('helmet');
 const path = require('path');
+const { version } = require('./package.json');
 const { initSchema, pool } = require('./db');
 const { validateBaseUrl } = require('./lib/security');
 
@@ -104,6 +105,9 @@ app.use(compression({
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
+app.get('/health', (_req, res) => {
+  res.set('Cache-Control', 'no-store').json({ status: 'ok', version });
+});
 
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: 0,              // toujours revalider (ETag/304)

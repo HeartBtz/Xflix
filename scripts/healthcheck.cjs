@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('node:http');
+const { version } = require('../package.json');
 
 function probe(port, timeout = 2000) {
   if (!/^\d+$/.test(String(port)) || +port < 1024 || +port > 65535) return Promise.reject(new Error('Invalid port'));
@@ -10,8 +11,7 @@ function probe(port, timeout = 2000) {
       clearTimeout(deadline);
       if (error) reject(error); else resolve();
     };
-    // /auth/me exercises the auth router without credentials. SPA HTML is not health.
-    const request = http.get({ hostname: '127.0.0.1', port: +port, path: '/auth/me', timeout, agent: false }, response => {
+    const request = http.get({ hostname: '127.0.0.1', port: +port, path: '/health', timeout, agent: false }, response => {
       let body = '';
       response.on('data', chunk => {
         body += chunk;
@@ -21,7 +21,7 @@ function probe(port, timeout = 2000) {
       response.on('end', () => {
         try {
           const json = JSON.parse(body);
-          if (response.statusCode !== 401 || !/^application\/json\b/i.test(response.headers['content-type'] || '') || typeof json.error !== 'string') throw new Error('Unexpected health response');
+          if (response.statusCode !== 200 || !/^application\/json\b/i.test(response.headers['content-type'] || '') || json.status !== 'ok' || json.version !== version) throw new Error('Unexpected health response');
           finish();
         } catch (_) { finish(new Error('Unexpected health response')); }
       });
@@ -41,6 +41,6 @@ async function healthcheck(port, attempts = 30) {
 }
 
 if (require.main === module) healthcheck(process.argv[2] || '3000').then(() => {
-  console.log('Local unauthenticated HTTP auth-router check passed; not a DB/restore readiness guarantee.');
+  console.log(`Local HTTP health check passed for XFlix ${version}; not a DB/restore readiness guarantee.`);
 }).catch(error => { console.error(error.message); process.exitCode = 1; });
 module.exports = { probe, healthcheck };

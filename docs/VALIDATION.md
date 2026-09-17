@@ -122,3 +122,10 @@ administration credentials. Record the revision, environment, suites executed,
 failures, skips, and manual coverage rather than a permanent exact test count.
 Neither green tests nor backup-file presence proves installation or
 recoverability.
+
+The repository's GitLab pipeline applies these checks to merge requests, the
+default branch and exact SemVer tags. Protected tags additionally build a
+checksummed release archive after `validate` and `browser` pass. See
+[`RELEASE.md`](RELEASE.md) for the exact Relay contract and the production
+deployment blocker. No deployment credentials or remote administration access
+belong in validation or release-build jobs.

@@ -92,9 +92,10 @@ rotation, backup recoverability, or a vulnerability-free application.
 - Unit/HTTP fixtures, opt-in real MariaDB integration, and Playwright UI fixtures
   exist. Browser API/media responses are intercepted, not a full production stack
   test. Fullscreen/PiP, proxy/MFA, and real media need release-specific validation.
-- CI is validation-only, uses disposable services, and has read-only repository
-  permissions. It has no production secrets or remote administration steps. CI
-  success is not proof that an installation is secure or recoverable.
+- CI uses disposable validation services and read-only repository permissions.
+  Protected SemVer tags add only a checksummed source artifact; there are no
+  production secrets, remote administration steps or deployment job. CI success
+  is not proof that an installation is secure or recoverable.
 
 ## Before exposing XFlix
 

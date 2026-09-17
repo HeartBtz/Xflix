@@ -594,6 +594,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, conventions, validation,
 and pull request guidance. `npm run check` includes unit and fixture tests; real
 MariaDB integration is opt-in, and Playwright covers desktop and mobile UI flows.
 
+`GET /health` returns the exact installed release as
+`{"status":"ok","version":"MAJOR.MINOR.PATCH"}`. GitLab validates merge requests
+and builds protected SemVer tags, but production deployment remains blocked
+until a verified source-limited forced receiver replaces the disproven historical
+direct-root path. See [the release contract](docs/RELEASE.md).
+
 ---
 
 ## 📋 Changelog

@@ -229,14 +229,15 @@ Do not grant passwordless sudo for this installer or arbitrary npm/node/git comm
 
 ## CI and release validation
 
-- `.github/workflows/ci.yml` pins Node 24.20.0 for validation, installs FFmpeg,
+- `.gitlab-ci.yml` pins Node 24.20.0 for validation, installs FFmpeg,
   and starts a disposable MariaDB 10.11 service. `XFLIX_INTEGRATION=1` enables
   the real SQL/HTTP suite with test-only credentials.
 - Validation installs the lockfile with lifecycle scripts disabled and runs the
   sharp smoke test and `npm run check`. The separate browser job uses the matching
   Playwright image and runs `npm run test:browser`. Run the production dependency
   audit separately so registry advisories remain visible and actionable.
-- CI is validation-only and has read-only repository permissions. It contains no
-  installation, release, remote access, or production credentials. Validate the
-  exact revision and maintain an independent backup and rollback plan before any
-  installation. A green workflow is not proof of deployment or recoverability.
+- CI has read-only repository permissions. Protected SemVer tags create a
+  checksummed source release only after validation; CI contains no installation,
+  remote access, deployment job or production credentials. Validate the exact
+  revision and maintain an independent backup and rollback plan before any
+  installation. A green pipeline is not proof of deployment or recoverability.
